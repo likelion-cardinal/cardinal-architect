@@ -39,6 +39,18 @@ variable "private_subnet_cidrs" {
   default     = ["10.20.10.0/24", "10.20.12.0/24"]
 }
 
+variable "alb_log_retention_days" {
+  description = "공유 버킷 alb-logs/ 보존 기간(일). 축제 후 IP 분석이 끝나면 쌓아둘 이유가 없다"
+  type        = number
+  default     = 90
+}
+
+variable "etcd_backup_retention_days" {
+  description = "공유 버킷 etcd/ 스냅샷 보존 기간(일)"
+  type        = number
+  default     = 30
+}
+
 variable "blocked_cidrs" {
   description = "Public NACL에서 deny할 악성 IP/CIDR 목록 (ALB 로그 분석 결과)"
   type        = list(string)

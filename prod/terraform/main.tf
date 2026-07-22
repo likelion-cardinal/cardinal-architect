@@ -23,8 +23,8 @@ module "iam" {
   env                = var.env
   ssm_parameter_path = local.kubeadm_ssm_path
 
-  # etcd 백업 버킷은 공유 S3 버킷(모듈 0) 생성 후 여기서 ARN을 주입한다.
-  # etcd_backup_bucket_arn = aws_s3_bucket.shared.arn
+  # 노드 Role이 etcd/ prefix에만 접근하도록 스코프된다(s3.tf 참고).
+  etcd_backup_bucket_arn = aws_s3_bucket.shared.arn
 }
 
 module "security" {
@@ -84,8 +84,8 @@ module "control_plane" {
   # pod_subnet         = "192.168.0.0/16"
   # kubernetes_version = "v1.34.9"  # AMI 프리풀 태그와 일치
 
-  # etcd 백업은 공유 S3 버킷 생성 후 버킷 이름을 주입하면 cron 활성화.
-  # etcd_backup_bucket = aws_s3_bucket.shared.bucket
+  # 버킷 이름이 들어가면 user_data가 매일 03:00 etcd 스냅샷 cron을 등록한다.
+  etcd_backup_bucket = aws_s3_bucket.shared.bucket
 }
 
 module "system_node" {

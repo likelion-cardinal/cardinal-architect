@@ -14,6 +14,11 @@ output "private_route_table_ids" {
   value = module.vpc.private_route_table_ids
 }
 
+output "shared_bucket_name" {
+  description = "ALB 로그(alb-logs/)와 etcd 스냅샷(etcd/)이 함께 들어가는 공유 버킷"
+  value       = aws_s3_bucket.shared.bucket
+}
+
 output "node_instance_profile_name" {
   value = module.iam.instance_profile_name
 }
