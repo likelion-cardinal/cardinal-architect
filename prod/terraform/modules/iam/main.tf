@@ -44,11 +44,14 @@ data "aws_iam_policy_document" "node_extra" {
     actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"]
     resources = ["*"]
 
-    # SSM을 경유한 호출로만 한정(광범위한 KMS 사용 방지).
+    # SSM(join 토큰)과 S3(PKI 백업 SSE-KMS)를 경유한 호출로만 한정.
     condition {
       test     = "StringEquals"
       variable = "kms:ViaService"
-      values   = ["ssm.${local.region}.amazonaws.com"]
+      values = [
+        "ssm.${local.region}.amazonaws.com",
+        "s3.${local.region}.amazonaws.com",
+      ]
     }
   }
 
@@ -94,15 +97,16 @@ data "aws_iam_policy_document" "node_extra" {
   dynamic "statement" {
     for_each = local.s3_enabled ? [1] : []
     content {
-      sid       = "EtcdBackupBucketList"
+      sid       = "BackupBucketList"
       effect    = "Allow"
       actions   = ["s3:ListBucket"]
       resources = [var.etcd_backup_bucket_arn]
 
+      # 복구 스크립트가 최신 백업을 찾으려면 두 prefix 모두 나열할 수 있어야 한다.
       condition {
         test     = "StringLike"
         variable = "s3:prefix"
-        values   = ["etcd/*"]
+        values   = ["etcd/*", "pki/*"]
       }
     }
   }
@@ -110,10 +114,15 @@ data "aws_iam_policy_document" "node_extra" {
   dynamic "statement" {
     for_each = local.s3_enabled ? [1] : []
     content {
-      sid       = "EtcdBackupObjects"
-      effect    = "Allow"
-      actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
-      resources = ["${var.etcd_backup_bucket_arn}/etcd/*"]
+      sid     = "BackupObjects"
+      effect  = "Allow"
+      actions = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+
+      # etcd 스냅샷과 PKI 아카이브. 이 둘이 짝을 이뤄야 복구가 성립한다.
+      resources = [
+        "${var.etcd_backup_bucket_arn}/etcd/*",
+        "${var.etcd_backup_bucket_arn}/pki/*",
+      ]
     }
   }
 }

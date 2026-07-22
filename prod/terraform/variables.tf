@@ -39,6 +39,13 @@ variable "private_subnet_cidrs" {
   default     = ["10.20.10.0/24", "10.20.12.0/24"]
 }
 
+# private_subnet_cidrs[0](10.20.10.0/24) 안의 주소여야 한다. .0~.3과 .255는 AWS 예약.
+variable "control_plane_private_ip" {
+  description = "CP 고정 사설 IP. 교체 후에도 워커가 같은 주소로 붙게 해 복구를 가능하게 한다"
+  type        = string
+  default     = "10.20.10.10"
+}
+
 variable "alb_log_retention_days" {
   description = "공유 버킷 alb-logs/ 보존 기간(일). 축제 후 IP 분석이 끝나면 쌓아둘 이유가 없다"
   type        = number

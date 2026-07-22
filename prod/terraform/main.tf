@@ -76,6 +76,10 @@ module "control_plane" {
   security_group_id     = module.security.control_plane_sg_id
   instance_profile_name = module.iam.instance_profile_name
 
+  # 사설 IP를 고정한다. CP를 교체해도 controlPlaneEndpoint와 인증서 SAN이 유지돼야
+  # 워커들이 그대로 붙고, etcd 스냅샷 복구가 의미를 가진다.
+  private_ip = var.control_plane_private_ip
+
   # 부팅과 동시에 kubeadm init → Calico apply → join 토큰 발행까지 무인 수행.
   ssm_parameter_path  = local.kubeadm_ssm_path
   join_parameter_name = local.join_parameter_name

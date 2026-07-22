@@ -108,24 +108,112 @@ echo '${token_refresh_cron} root /usr/local/bin/publish-join-command.sh >> /var/
   >/etc/cron.d/publish-join-command
 
 %{ if etcd_backup_bucket != "" ~}
-# ── etcd 스냅샷 백업 스크립트 (공유 버킷의 etcd/ prefix로 업로드) ──
+# ═══════════════════════════════════════════════════════
+#  4) 백업 — etcd 스냅샷(etcd/) + PKI(pki/)
+# ═══════════════════════════════════════════════════════
+# 둘 다 있어야 복구가 된다. CA 개인키는 etcd 안이 아니라 /etc/kubernetes/pki에
+# 파일로 있어서, 스냅샷만 복원하면 모든 인증서·ServiceAccount 토큰이 무효가 된다.
 cat >/usr/local/bin/etcd-backup.sh <<'EOS'
 #!/bin/bash
 set -euo pipefail
+export PATH="$PATH:/usr/local/bin"
+BUCKET="CARDINAL_BACKUP_BUCKET"
 TS=$(date +%Y%m%d-%H%M%S)
-SNAP="/tmp/etcd-$TS.db"
-ETCDCTL_API=3 etcdctl \
-  --endpoints=https://127.0.0.1:2379 \
+SNAP="/var/lib/etcd-backup/etcd-$TS.db"
+mkdir -p /var/lib/etcd-backup
+
+ETCD_ARGS="--endpoints=https://127.0.0.1:2379 \
   --cacert=/etc/kubernetes/pki/etcd/ca.crt \
   --cert=/etc/kubernetes/pki/etcd/server.crt \
-  --key=/etc/kubernetes/pki/etcd/server.key \
-  snapshot save "$SNAP"
-aws s3 cp "$SNAP" "s3://${etcd_backup_bucket}/etcd/"
+  --key=/etc/kubernetes/pki/etcd/server.key"
+
+# etcdctl은 호스트에 없을 수 있다(kubeadm은 etcd를 정적 파드로만 띄운다).
+# 없으면 etcd 컨테이너 안의 etcdctl을 쓴다. /var/lib/etcd는 hostPath라 결과가 호스트에 남는다.
+if command -v etcdctl >/dev/null 2>&1; then
+  ETCDCTL_API=3 etcdctl $ETCD_ARGS snapshot save "$SNAP"
+else
+  CID=$(crictl ps --name '^etcd$' -q | head -1)
+  crictl exec "$CID" etcdctl $ETCD_ARGS snapshot save "/var/lib/etcd/snap-$TS.db"
+  mv "/var/lib/etcd/snap-$TS.db" "$SNAP"
+fi
+
+aws s3 cp "$SNAP" "s3://$BUCKET/etcd/"
 rm -f "$SNAP"
+
+# PKI는 CA 개인키를 담고 있어 SSE-KMS로 한 겹 더 감싼다(버킷 기본값은 SSE-S3).
+tar czf "/tmp/pki-$TS.tar.gz" -C / etc/kubernetes/pki
+aws s3 cp "/tmp/pki-$TS.tar.gz" "s3://$BUCKET/pki/" --sse aws:kms
+rm -f "/tmp/pki-$TS.tar.gz"
 EOS
+sed -i "s|CARDINAL_BACKUP_BUCKET|${etcd_backup_bucket}|" /usr/local/bin/etcd-backup.sh
 chmod +x /usr/local/bin/etcd-backup.sh
 
 # 매일 03:00 백업
 echo '0 3 * * * root /usr/local/bin/etcd-backup.sh >> /var/log/etcd-backup.log 2>&1' \
   >/etc/cron.d/etcd-backup
+
+# ── 재해 복구 스크립트 (굽기만 하고 자동 실행하지 않는다) ──
+# 자동화하면 멀쩡한 클러스터에 새 CP가 뜰 때 옛 스냅샷을 덮어쓸 수 있다.
+cat >/usr/local/bin/restore-cluster.sh <<'EOS'
+#!/bin/bash
+# CP 재해 복구 — 관리자가 SSM으로 접속해 직접 실행한다.
+#
+# 실행 전 확인:
+#   1. 이 노드가 "교체된 빈 CP"인가? 기존 CP가 살아 있으면 실행하지 말 것.
+#   2. 사설 IP가 예전과 같은가? (terraform control_plane_private_ip 고정값)
+#      다르면 인증서 SAN이 어긋나 apiserver가 뜨지 않는다.
+#   3. App ASG를 desired=0으로 내려둘 것. 복구 전 발행된 임시 토큰으로
+#      새 노드가 "잘못된 클러스터"에 붙는 것을 막는다.
+set -euo pipefail
+export PATH="$PATH:/usr/local/bin"
+BUCKET="CARDINAL_BACKUP_BUCKET"
+
+read -r -p "현재 노드의 클러스터 상태를 덮어씁니다. 계속하려면 restore 입력: " CONFIRM
+[ "$CONFIRM" = "restore" ] || { echo "취소"; exit 1; }
+
+# 최신 백업 키 (파일명이 타임스탬프라 사전순 정렬 = 시간순)
+SNAP_KEY=$(aws s3 ls "s3://$BUCKET/etcd/" | sort | tail -1 | awk '{print $4}')
+PKI_KEY=$(aws s3 ls "s3://$BUCKET/pki/" | sort | tail -1 | awk '{print $4}')
+echo "복원 대상: etcd/$SNAP_KEY, pki/$PKI_KEY"
+
+# 부팅 시 만들어진 "새 클러스터"를 먼저 지운다.
+kubeadm reset -f || true
+
+# 1) PKI 복원 — CA가 먼저 제자리에 있어야 나머지가 의미를 가진다.
+aws s3 cp "s3://$BUCKET/pki/$PKI_KEY" /tmp/pki.tar.gz
+rm -rf /etc/kubernetes/pki
+tar xzf /tmp/pki.tar.gz -C /
+
+# 2) etcd 데이터 복원. restore는 3.5부터 etcdutl로 옮겨갔고,
+#    호스트에 둘 다 없으면 프리풀된 etcd 이미지로 실행한다.
+aws s3 cp "s3://$BUCKET/etcd/$SNAP_KEY" /tmp/snapshot.db
+rm -rf /var/lib/etcd
+if command -v etcdutl >/dev/null 2>&1; then
+  etcdutl snapshot restore /tmp/snapshot.db --data-dir /var/lib/etcd
+elif command -v etcdctl >/dev/null 2>&1; then
+  ETCDCTL_API=3 etcdctl snapshot restore /tmp/snapshot.db --data-dir /var/lib/etcd
+else
+  ETCD_IMAGE=$(crictl images | awk '/etcd/ {print $1":"$2; exit}')
+  ctr -n k8s.io run --rm \
+    --mount type=bind,src=/tmp,dst=/tmp,options=rbind:rw \
+    --mount type=bind,src=/var/lib,dst=/var/lib,options=rbind:rw \
+    "$ETCD_IMAGE" etcd-restore-$$ \
+    etcdutl snapshot restore /tmp/snapshot.db --data-dir /var/lib/etcd
+fi
+
+# 3) 복원된 PKI·데이터 위에 control plane 재구성.
+#    /var/lib/etcd가 이미 차 있는 것은 정상이므로 해당 preflight만 무시한다.
+kubeadm init --config /etc/kubernetes/kubeadm-init.yaml \
+  --ignore-preflight-errors=DirAvailable--var-lib-etcd
+
+mkdir -p /root/.kube
+cp -f /etc/kubernetes/admin.conf /root/.kube/config
+chmod 600 /root/.kube/config
+
+# 4) 새 join 토큰 발행. 워커는 복원된 CA를 신뢰하므로 기존 노드도 그대로 붙는다.
+/usr/local/bin/publish-join-command.sh
+echo "복구 완료. kubectl get nodes 로 확인 후 App ASG를 원래 크기로 되돌릴 것."
+EOS
+sed -i "s|CARDINAL_BACKUP_BUCKET|${etcd_backup_bucket}|" /usr/local/bin/restore-cluster.sh
+chmod +x /usr/local/bin/restore-cluster.sh
 %{ endif ~}

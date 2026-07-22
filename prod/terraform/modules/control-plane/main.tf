@@ -30,6 +30,7 @@ resource "aws_instance" "cp" {
   ami                    = local.ami_id
   instance_type          = var.instance_type
   subnet_id              = var.subnet_id
+  private_ip             = var.private_ip != "" ? var.private_ip : null
   vpc_security_group_ids = [var.security_group_id]
   iam_instance_profile   = var.instance_profile_name
   key_name               = var.key_name != "" ? var.key_name : null

@@ -76,6 +76,20 @@ resource "aws_s3_bucket_lifecycle_configuration" "shared" {
     }
   }
 
+  # PKI는 etcd 스냅샷과 짝이 맞아야 복구가 되므로 같은 보존 기간을 쓴다.
+  rule {
+    id     = "expire-pki-archives"
+    status = "Enabled"
+
+    filter {
+      prefix = "pki/"
+    }
+
+    expiration {
+      days = var.etcd_backup_retention_days
+    }
+  }
+
   # 중단된 멀티파트 업로드가 남아 조용히 과금되는 것을 막는다.
   rule {
     id     = "abort-incomplete-uploads"
@@ -104,6 +118,27 @@ data "aws_iam_policy_document" "shared_bucket" {
 
     actions   = ["s3:PutObject"]
     resources = ["${aws_s3_bucket.shared.arn}/alb-logs/*"]
+  }
+
+  # 저장 시 암호화(SSE-S3)와 별개로, 평문 HTTP 접근 자체를 거부한다.
+  # Deny는 Allow보다 우선하므로 위 ALB 로그 전달에도 동일하게 적용된다(ALB는 HTTPS로 쓴다).
+  statement {
+    sid    = "DenyInsecureTransport"
+    effect = "Deny"
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    actions   = ["s3:*"]
+    resources = [aws_s3_bucket.shared.arn, "${aws_s3_bucket.shared.arn}/*"]
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
   }
 }
 

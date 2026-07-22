@@ -59,6 +59,17 @@ variable "hostname" {
   default     = "master-1"
 }
 
+variable "private_ip" {
+  description = <<-EOT
+    CP에 고정할 사설 IP. subnet_id의 CIDR 안이어야 하고 앞 4개·마지막 1개는 AWS 예약이다.
+    고정하는 이유: controlPlaneEndpoint와 인증서 SAN이 이 주소로 굳는다. IP가 바뀌면
+    워커의 kubelet.conf가 죽은 주소를 가리켜 클러스터 전체가 복구 불가능해진다.
+    비우면 AWS가 임의 할당한다(복구 시나리오를 포기한다는 뜻).
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "kubernetes_version" {
   description = "kubeadm init에 고정할 k8s 버전. AMI에 프리풀된 이미지 태그와 반드시 일치해야 무인 부팅에서 pull이 발생하지 않는다"
   type        = string
