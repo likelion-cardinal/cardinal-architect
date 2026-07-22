@@ -57,3 +57,16 @@ module "nat_instance" {
   # 따라서 root에 aws_route를 두지 않고, 라우트 테이블 ID만 모듈에 넘긴다.
   private_route_table_ids = module.vpc.private_route_table_ids
 }
+
+module "control_plane" {
+  source = "./modules/control-plane"
+
+  project               = var.project
+  env                   = var.env
+  subnet_id             = module.vpc.private_subnet_ids[0] # compute_az(첫 AZ=2a) private
+  security_group_id     = module.security.control_plane_sg_id
+  instance_profile_name = module.iam.instance_profile_name
+
+  # etcd 백업은 공유 S3 버킷 생성 후 버킷 이름을 주입하면 cron 활성화.
+  # etcd_backup_bucket = aws_s3_bucket.shared.bucket
+}

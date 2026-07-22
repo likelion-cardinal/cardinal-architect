@@ -1,0 +1,31 @@
+#!/bin/bash
+# Control Plane 부팅 스크립트
+#  - hostname 설정 (kubeadm 노드명)
+#  - (버킷 주입 시) etcd 스냅샷 백업 cron 등록
+#    ※ 실제 백업은 kubeadm/etcd + awscli 설치 이후 동작한다.
+set -euxo pipefail
+
+hostnamectl set-hostname ${hostname}
+
+%{ if etcd_backup_bucket != "" ~}
+# ── etcd 스냅샷 백업 스크립트 (공유 버킷의 etcd/ prefix로 업로드) ──
+cat >/usr/local/bin/etcd-backup.sh <<'EOS'
+#!/bin/bash
+set -euo pipefail
+TS=$(date +%Y%m%d-%H%M%S)
+SNAP="/tmp/etcd-$TS.db"
+ETCDCTL_API=3 etcdctl \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key \
+  snapshot save "$SNAP"
+aws s3 cp "$SNAP" "s3://${etcd_backup_bucket}/etcd/"
+rm -f "$SNAP"
+EOS
+chmod +x /usr/local/bin/etcd-backup.sh
+
+# 매일 03:00 백업
+echo '0 3 * * * root /usr/local/bin/etcd-backup.sh >> /var/log/etcd-backup.log 2>&1' \
+  >/etc/cron.d/etcd-backup
+%{ endif ~}

@@ -43,3 +43,11 @@ output "nat_ami_id" {
 output "ssm_endpoint_ids" {
   value = module.endpoints.endpoint_ids
 }
+
+output "control_plane_instance_id" {
+  value = module.control_plane.instance_id
+}
+
+output "control_plane_private_ip" {
+  value = module.control_plane.private_ip
+}
