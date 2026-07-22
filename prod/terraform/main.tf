@@ -87,3 +87,24 @@ module "system_node" {
   # mysql_data_volume_size = 20
   # mysql_mount_point      = "/mnt/mysql-data"
 }
+
+module "app_asg" {
+  source = "./modules/app-asg"
+
+  project               = var.project
+  env                   = var.env
+  ami_id                = var.node_ami_id
+  security_group_id     = module.security.app_sg_id
+  instance_profile_name = module.iam.instance_profile_name
+
+  # 현재는 compute_az(첫 AZ=2a) 한 곳. NAT·CP·System과 같은 AZ에 두어 AZ 간 전송요금을 피한다.
+  # 진짜 AZ 장애 내성이 필요해지면 여기에 두 번째 private 서브넷을 추가한다.
+  subnet_ids = [module.vpc.private_subnet_ids[0]]
+
+  # 스케일 폭. desired는 Cluster Autoscaler가 조정하므로 모듈이 무시한다.
+  min_size = 1
+  max_size = 3
+
+  # ALB Target Group 등록은 alb 모듈 생성 후 주입 (그전엔 EC2 헬스체크).
+  # target_group_arns = [module.alb.target_group_arn]
+}

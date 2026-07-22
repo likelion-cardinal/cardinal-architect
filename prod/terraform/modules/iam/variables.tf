@@ -20,6 +20,12 @@ variable "ssm_parameter_path" {
   default     = "kubeadm"
 }
 
+variable "cluster_autoscaler_enabled" {
+  description = "Cluster Autoscaler(System 노드에서 구동)가 App ASG를 조정할 권한을 노드 Role에 부여할지 여부"
+  type        = bool
+  default     = true
+}
+
 variable "etcd_backup_bucket_arn" {
   description = "etcd 스냅샷 백업용 공유 S3 버킷 ARN. 비우면 S3 접근 정책을 생략한다(버킷 모듈 생성 후 root에서 주입)."
   type        = string

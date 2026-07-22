@@ -59,3 +59,16 @@ output "system_node_instance_id" {
 output "system_node_private_ip" {
   value = module.system_node.private_ip
 }
+
+output "app_asg_name" {
+  value = module.app_asg.asg_name
+}
+
+output "app_launch_template_id" {
+  value = module.app_asg.launch_template_id
+}
+
+# CP가 이 이름으로 join 커맨드를 SecureString 저장해야 신규 노드가 붙는다.
+output "kubeadm_join_parameter_name" {
+  value = module.app_asg.join_parameter_name
+}

@@ -50,6 +50,45 @@ data "aws_iam_policy_document" "node_extra" {
     }
   }
 
+  # Cluster Autoscaler: 대상 ASG 탐색(읽기)은 리소스 스코프를 지원하지 않아 "*",
+  # 실제 조작(용량 변경·인스턴스 종료)은 auto-discovery 태그가 붙은 ASG로만 한정한다.
+  dynamic "statement" {
+    for_each = var.cluster_autoscaler_enabled ? [1] : []
+    content {
+      sid    = "ClusterAutoscalerDiscovery"
+      effect = "Allow"
+      actions = [
+        "autoscaling:DescribeAutoScalingGroups",
+        "autoscaling:DescribeAutoScalingInstances",
+        "autoscaling:DescribeScalingActivities",
+        "autoscaling:DescribeTags",
+        "ec2:DescribeInstanceTypes",
+        "ec2:DescribeLaunchTemplateVersions",
+        "ec2:DescribeImages",
+      ]
+      resources = ["*"]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.cluster_autoscaler_enabled ? [1] : []
+    content {
+      sid    = "ClusterAutoscalerScale"
+      effect = "Allow"
+      actions = [
+        "autoscaling:SetDesiredCapacity",
+        "autoscaling:TerminateInstanceInAutoScalingGroup",
+      ]
+      resources = ["*"]
+
+      condition {
+        test     = "StringEquals"
+        variable = "autoscaling:ResourceTag/k8s.io/cluster-autoscaler/${local.name}"
+        values   = ["owned"]
+      }
+    }
+  }
+
   dynamic "statement" {
     for_each = local.s3_enabled ? [1] : []
     content {
