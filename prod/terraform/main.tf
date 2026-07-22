@@ -32,11 +32,16 @@ module "security" {
   blocked_cidrs = var.blocked_cidrs
 }
 
-# TODO(root wiring, nat-instance 모듈 추가 후):
-#   Private 라우트 테이블의 기본 경로(0.0.0.0/0 → NAT Instance)를 여기서 추가한다.
-#   resource "aws_route" "private_nat" {
-#     count                  = length(module.vpc.private_route_table_ids)
-#     route_table_id         = module.vpc.private_route_table_ids[count.index]
-#     destination_cidr_block = "0.0.0.0/0"
-#     network_interface_id   = module.nat_instance.eni_id
-#   }
+module "nat_instance" {
+  source = "./modules/nat-instance"
+
+  project           = var.project
+  env               = var.env
+  subnet_id         = module.vpc.public_subnet_ids[0] # compute_az(첫 AZ=2a)의 public 서브넷
+  security_group_id = module.security.nat_sg_id
+
+  # Private 라우트(0.0.0.0/0 → NAT)는 NAT의 user_data가 부팅 시 직접 갱신한다.
+  # ASG가 인스턴스를 교체하면 새 인스턴스가 자기 자신으로 라우트를 재지정(자동 복구).
+  # 따라서 root에 aws_route를 두지 않고, 라우트 테이블 ID만 모듈에 넘긴다.
+  private_route_table_ids = module.vpc.private_route_table_ids
+}

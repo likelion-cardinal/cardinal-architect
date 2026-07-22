@@ -31,3 +31,11 @@ output "security_group_ids" {
     app           = module.security.app_sg_id
   }
 }
+
+output "nat_asg_name" {
+  value = module.nat_instance.asg_name
+}
+
+output "nat_ami_id" {
+  value = module.nat_instance.ami_id
+}

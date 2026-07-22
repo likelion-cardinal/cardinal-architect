@@ -1,0 +1,48 @@
+#!/bin/bash
+# NAT Instance 부팅 스크립트
+#  1) IP 포워딩 + iptables MASQUERADE 로 아웃바운드 중계
+#  2) 자기 자신의 source/dest check 비활성화 (NAT 필수)
+#  3) Private 라우트 테이블의 0.0.0.0/0 을 이 인스턴스로 갱신 (ASG 교체 시 자동 복구)
+set -euxo pipefail
+
+# ── awscli 설치 (Amazon Linux 2023엔 기본 미포함) ──
+dnf install -y iptables-services
+if ! command -v aws >/dev/null 2>&1; then
+  dnf install -y unzip
+  curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+  unzip -q /tmp/awscliv2.zip -d /tmp
+  /tmp/aws/install
+fi
+export PATH="$PATH:/usr/local/bin"
+
+# ── IMDSv2 메타데이터 ──
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+meta() { curl -s -H "X-aws-ec2-metadata-token: $TOKEN" "http://169.254.169.254/latest/meta-data/$1"; }
+INSTANCE_ID=$(meta instance-id)
+REGION=$(meta placement/region)
+
+# ── 1) IP 포워딩 ──
+echo 'net.ipv4.ip_forward=1' >/etc/sysctl.d/99-nat.conf
+sysctl -p /etc/sysctl.d/99-nat.conf
+
+# ── 2) iptables MASQUERADE (기본 인터페이스 기준) + 영속화 ──
+PRIMARY_IF=$(ip -o -4 route show to default | awk '{print $5}' | head -1)
+iptables -t nat -A POSTROUTING -o "$PRIMARY_IF" -j MASQUERADE
+iptables -F FORWARD
+iptables -A FORWARD -j ACCEPT
+iptables-save >/etc/sysconfig/iptables
+systemctl enable --now iptables
+
+# ── 3) source/dest check 비활성화 (자기 자신) ──
+aws ec2 modify-instance-attribute \
+  --instance-id "$INSTANCE_ID" --no-source-dest-check --region "$REGION"
+
+# ── 4) Private 라우트 갱신 (0.0.0.0/0 → 이 인스턴스) ──
+# replace 먼저 시도, 없으면 create. ASG가 인스턴스를 교체할 때마다 새 인스턴스로 재지정.
+for RTB in ${route_table_ids}; do
+  aws ec2 replace-route --route-table-id "$RTB" \
+    --destination-cidr-block 0.0.0.0/0 --instance-id "$INSTANCE_ID" --region "$REGION" \
+  || aws ec2 create-route --route-table-id "$RTB" \
+    --destination-cidr-block 0.0.0.0/0 --instance-id "$INSTANCE_ID" --region "$REGION"
+done
