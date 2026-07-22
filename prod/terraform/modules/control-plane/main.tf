@@ -7,8 +7,16 @@ locals {
 
   ami_id = var.ami_id != "" ? var.ami_id : nonsensitive(data.aws_ssm_parameter.al2023.value)
 
+  # join 토큰 파라미터 경로. iam(권한)·app-asg(수신)과 같은 값을 봐야 한다.
+  join_param = "/${var.project}/${var.env}/${var.ssm_parameter_path}/${var.join_parameter_name}"
+
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
     hostname           = var.hostname
+    kubernetes_version = var.kubernetes_version
+    pod_subnet         = var.pod_subnet
+    calico_manifest    = var.calico_manifest_path
+    join_param         = local.join_param
+    token_refresh_cron = var.token_refresh_cron
     etcd_backup_bucket = var.etcd_backup_bucket
   })
 }

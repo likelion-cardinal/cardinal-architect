@@ -59,6 +59,42 @@ variable "hostname" {
   default     = "master-1"
 }
 
+variable "kubernetes_version" {
+  description = "kubeadm init에 고정할 k8s 버전. AMI에 프리풀된 이미지 태그와 반드시 일치해야 무인 부팅에서 pull이 발생하지 않는다"
+  type        = string
+  default     = "v1.34.9"
+}
+
+variable "pod_subnet" {
+  description = "파드 네트워크 대역. Calico 기본 IP 풀과 일치하며 VPC CIDR과 겹치지 않아야 한다"
+  type        = string
+  default     = "192.168.0.0/16"
+}
+
+variable "calico_manifest_path" {
+  description = "AMI에 구워둔 Calico 매니페스트 경로 (VXLAN=Always로 수정된 사본)"
+  type        = string
+  default     = "/opt/cardinal/calico-vxlan.yaml"
+}
+
+variable "ssm_parameter_path" {
+  description = "join 토큰을 발행할 SSM Parameter Store 경로 prefix. iam·app-asg의 동명 변수와 같은 값이어야 한다"
+  type        = string
+  default     = "kubeadm"
+}
+
+variable "join_parameter_name" {
+  description = "join 커맨드를 저장할 파라미터 이름 (경로 하위)"
+  type        = string
+  default     = "join-command"
+}
+
+variable "token_refresh_cron" {
+  description = "join 토큰 갱신 cron 스케줄. 토큰 TTL(24h)보다 촘촘해야 만료 구멍이 생기지 않는다"
+  type        = string
+  default     = "0 */6 * * *"
+}
+
 variable "etcd_backup_bucket" {
   description = "etcd 스냅샷 업로드용 공유 S3 버킷 이름. 비우면 백업 cron 생략(버킷 생성 후 주입)"
   type        = string

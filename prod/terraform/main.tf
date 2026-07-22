@@ -1,3 +1,10 @@
+locals {
+  # join 토큰이 오가는 SSM 경로. iam(권한 부여)·control-plane(발행)·app-asg(수신)
+  # 세 모듈이 같은 값을 봐야 하므로 root에서 한 번만 정한다.
+  kubeadm_ssm_path    = "kubeadm"
+  join_parameter_name = "join-command"
+}
+
 module "vpc" {
   source = "./modules/vpc"
 
@@ -12,8 +19,9 @@ module "vpc" {
 module "iam" {
   source = "./modules/iam"
 
-  project = var.project
-  env     = var.env
+  project            = var.project
+  env                = var.env
+  ssm_parameter_path = local.kubeadm_ssm_path
 
   # etcd 백업 버킷은 공유 S3 버킷(모듈 0) 생성 후 여기서 ARN을 주입한다.
   # etcd_backup_bucket_arn = aws_s3_bucket.shared.arn
@@ -68,6 +76,14 @@ module "control_plane" {
   security_group_id     = module.security.control_plane_sg_id
   instance_profile_name = module.iam.instance_profile_name
 
+  # 부팅과 동시에 kubeadm init → Calico apply → join 토큰 발행까지 무인 수행.
+  ssm_parameter_path  = local.kubeadm_ssm_path
+  join_parameter_name = local.join_parameter_name
+
+  # 파드 대역은 VPC(10.20.0.0/16)와 겹치지 않아야 하고, Calico 기본 풀과도 맞아야 한다.
+  # pod_subnet         = "192.168.0.0/16"
+  # kubernetes_version = "v1.34.9"  # AMI 프리풀 태그와 일치
+
   # etcd 백업은 공유 S3 버킷 생성 후 버킷 이름을 주입하면 cron 활성화.
   # etcd_backup_bucket = aws_s3_bucket.shared.bucket
 }
@@ -96,6 +112,10 @@ module "app_asg" {
   ami_id                = var.node_ami_id
   security_group_id     = module.security.app_sg_id
   instance_profile_name = module.iam.instance_profile_name
+
+  # CP가 발행한 join 커맨드를 읽을 파라미터 (경로가 어긋나면 노드가 join하지 못한다).
+  ssm_parameter_path  = local.kubeadm_ssm_path
+  join_parameter_name = local.join_parameter_name
 
   # 현재는 compute_az(첫 AZ=2a) 한 곳. NAT·CP·System과 같은 AZ에 두어 AZ 간 전송요금을 피한다.
   # 진짜 AZ 장애 내성이 필요해지면 여기에 두 번째 private 서브넷을 추가한다.

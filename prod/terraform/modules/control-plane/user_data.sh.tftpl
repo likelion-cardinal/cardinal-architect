@@ -1,11 +1,111 @@
 #!/bin/bash
-# Control Plane 부팅 스크립트
-#  - hostname 설정 (kubeadm 노드명)
-#  - (버킷 주입 시) etcd 스냅샷 백업 cron 등록
-#    ※ 실제 백업은 kubeadm/etcd + awscli 설치 이후 동작한다.
+# Control Plane 부팅 스크립트 (무인 부트스트랩)
+#  1) hostname + kubeadm init (AMI에 프리풀된 버전으로 고정)
+#  2) Calico 매니페스트 apply — CNI는 day-0라 ArgoCD가 관리할 수 없다
+#  3) join 커맨드를 SSM SecureString으로 발행 + 갱신 cron (App ASG 신규 노드가 읽어간다)
+#  4) (버킷 주입 시) etcd 스냅샷 백업 cron
+# 로그: /var/log/cardinal-bootstrap.log
 set -euxo pipefail
+exec > >(tee -a /var/log/cardinal-bootstrap.log) 2>&1
 
 hostnamectl set-hostname ${hostname}
+
+# ── awscli 확보 (AMI에 없을 수 있음) ──
+if ! command -v aws >/dev/null 2>&1; then
+  dnf install -y unzip
+  curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+  unzip -q /tmp/awscliv2.zip -d /tmp
+  /tmp/aws/install
+fi
+export PATH="$PATH:/usr/local/bin"
+
+# ── IMDSv2 메타데이터 ──
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+meta() { curl -s -H "X-aws-ec2-metadata-token: $TOKEN" "http://169.254.169.254/latest/meta-data/$1"; }
+INSTANCE_ID=$(meta instance-id)
+AZ=$(meta placement/availability-zone)
+PRIVATE_IP=$(meta local-ipv4)
+
+export KUBECONFIG=/etc/kubernetes/admin.conf
+
+# ═══════════════════════════════════════════════════════
+#  1) kubeadm init  (admin.conf가 있으면 이미 초기화된 노드 → 건너뜀)
+# ═══════════════════════════════════════════════════════
+if [ ! -f /etc/kubernetes/admin.conf ]; then
+  # provider-id가 없으면 Cluster Autoscaler가 노드↔EC2 매핑을 못 한다(워커와 동일 이유).
+  # v1beta4부터 kubeletExtraArgs는 map이 아니라 name/value 목록이다.
+  cat >/etc/kubernetes/kubeadm-init.yaml <<EOF
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: $PRIVATE_IP
+  bindPort: 6443
+nodeRegistration:
+  name: ${hostname}
+  criSocket: unix:///run/containerd/containerd.sock
+  kubeletExtraArgs:
+    - name: provider-id
+      value: aws:///$AZ/$INSTANCE_ID
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+kubernetesVersion: ${kubernetes_version}
+controlPlaneEndpoint: $PRIVATE_IP:6443
+networking:
+  # Calico 기본 IP 풀과 일치시킨다. VPC 대역과 겹치지 않는 값이어야 한다.
+  podSubnet: ${pod_subnet}
+EOF
+
+  # AMI에 이미지가 프리풀돼 있어 레지스트리 pull 없이 뜬다(무인 부팅의 실패 지점 최소화).
+  kubeadm init --config /etc/kubernetes/kubeadm-init.yaml
+
+  # 관리자 kubectl (SSM 접속 후 sudo -i 로 사용)
+  mkdir -p /root/.kube
+  cp -f /etc/kubernetes/admin.conf /root/.kube/config
+  chmod 600 /root/.kube/config
+
+  # ── 2) Calico — AMI에 구워둔 매니페스트(VXLAN=Always) ──
+  # apiserver가 응답할 때까지 기다린 뒤 apply. CNI가 없으면 다른 파드는 Pending이다.
+  for _ in $(seq 1 60); do
+    kubectl get --raw='/readyz' >/dev/null 2>&1 && break
+    sleep 5
+  done
+  kubectl apply -f ${calico_manifest}
+fi
+
+# ═══════════════════════════════════════════════════════
+#  3) join 커맨드 발행 — App ASG 신규 노드가 SSM에서 읽어간다
+# ═══════════════════════════════════════════════════════
+# 부트스트랩 토큰 TTL은 24시간이라 축제 중 만료된다.
+# cron이 새 토큰을 찍어 파라미터를 덮어써, 언제 뜬 노드든 유효한 토큰을 받는다.
+cat >/usr/local/bin/publish-join-command.sh <<'EOS'
+#!/bin/bash
+set -euo pipefail
+export PATH="$PATH:/usr/local/bin"
+export KUBECONFIG=/etc/kubernetes/admin.conf
+
+IMDS_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+REGION=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" \
+  "http://169.254.169.254/latest/meta-data/placement/region")
+
+JOIN_CMD=$(kubeadm token create --ttl 24h --print-join-command)
+
+aws ssm put-parameter \
+  --name "CARDINAL_JOIN_PARAM" \
+  --type SecureString \
+  --value "$JOIN_CMD" \
+  --overwrite \
+  --region "$REGION"
+EOS
+sed -i "s|CARDINAL_JOIN_PARAM|${join_param}|" /usr/local/bin/publish-join-command.sh
+chmod +x /usr/local/bin/publish-join-command.sh
+
+# 즉시 1회 발행(대기 중이던 App 노드가 이 시점에 붙는다) + 주기 갱신
+/usr/local/bin/publish-join-command.sh
+echo '${token_refresh_cron} root /usr/local/bin/publish-join-command.sh >> /var/log/join-token.log 2>&1' \
+  >/etc/cron.d/publish-join-command
 
 %{ if etcd_backup_bucket != "" ~}
 # ── etcd 스냅샷 백업 스크립트 (공유 버킷의 etcd/ prefix로 업로드) ──

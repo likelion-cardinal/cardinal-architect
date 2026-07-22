@@ -37,12 +37,14 @@ data "aws_iam_policy_document" "node_extra" {
   }
 
   statement {
-    sid       = "DecryptSSMSecureString"
-    effect    = "Allow"
-    actions   = ["kms:Decrypt"]
+    sid    = "UseSSMSecureString"
+    effect = "Allow"
+    # Decrypt는 워커가 join 커맨드를 읽을 때, Encrypt/GenerateDataKey는
+    # CP가 갱신한 토큰을 SecureString으로 덮어쓸 때 필요하다.
+    actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"]
     resources = ["*"]
 
-    # SSM을 경유한 복호화로만 한정(광범위한 KMS 사용 방지).
+    # SSM을 경유한 호출로만 한정(광범위한 KMS 사용 방지).
     condition {
       test     = "StringEquals"
       variable = "kms:ViaService"
