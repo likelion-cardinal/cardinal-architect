@@ -63,6 +63,7 @@ module "control_plane" {
 
   project               = var.project
   env                   = var.env
+  ami_id                = var.node_ami_id
   subnet_id             = module.vpc.private_subnet_ids[0] # compute_az(첫 AZ=2a) private
   security_group_id     = module.security.control_plane_sg_id
   instance_profile_name = module.iam.instance_profile_name
@@ -76,6 +77,7 @@ module "system_node" {
 
   project               = var.project
   env                   = var.env
+  ami_id                = var.node_ami_id
   subnet_id             = module.vpc.private_subnet_ids[0] # compute_az(첫 AZ=2a) private
   security_group_id     = module.security.system_sg_id
   instance_profile_name = module.iam.instance_profile_name
