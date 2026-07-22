@@ -98,6 +98,10 @@ module "system_node" {
   security_group_id     = module.security.system_sg_id
   instance_profile_name = module.iam.instance_profile_name
 
+  # CP가 발행한 join 커맨드를 읽어 부팅 시 클러스터에 붙는다.
+  ssm_parameter_path  = local.kubeadm_ssm_path
+  join_parameter_name = local.join_parameter_name
+
   # MySQL 데이터용 정적 EBS. 크기 지정 시 노드 AZ에 생성·부착 후 mysql_mount_point에 마운트.
   # 파드는 이 디렉토리를 hostPath PV로 사용. 백업(mysqldump)은 클러스터 CronJob으로 별도.
   # mysql_data_volume_size = 20

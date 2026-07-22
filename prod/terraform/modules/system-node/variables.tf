@@ -59,6 +59,30 @@ variable "hostname" {
   default     = "system-1"
 }
 
+variable "ssm_parameter_path" {
+  description = "join 토큰이 저장된 SSM Parameter Store 경로 prefix. iam·control-plane·app-asg의 동명 변수와 같은 값이어야 한다"
+  type        = string
+  default     = "kubeadm"
+}
+
+variable "join_parameter_name" {
+  description = "join 커맨드가 담긴 파라미터 이름 (경로 하위)"
+  type        = string
+  default     = "join-command"
+}
+
+variable "join_retry_attempts" {
+  description = "join 커맨드 조회·실행 재시도 횟수 (10초 간격). CP 부팅과 경쟁하므로 넉넉히 둔다"
+  type        = number
+  default     = 60
+}
+
+variable "node_labels" {
+  description = "kubelet이 스스로 붙이는 노드 라벨. ArgoCD·Prometheus·MySQL의 nodeSelector 대상"
+  type        = string
+  default     = "cardinal.io/role=system"
+}
+
 variable "mysql_data_volume_size" {
   description = "MySQL 데이터용 별도 EBS 크기(GB). 0이면 생성 안 함. >0이면 정적 EBS를 노드 AZ에 고정 부착 후 mysql_mount_point에 마운트"
   type        = number

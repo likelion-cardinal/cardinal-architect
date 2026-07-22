@@ -10,12 +10,18 @@ locals {
   mysql_static      = var.mysql_data_volume_size > 0
   mysql_volume_name = "${local.name}-mysql-data"
 
-  # user_data: hostname + (정적 EBS가 있으면) MySQL 데이터 볼륨 포맷/마운트.
-  # MySQL 백업(mysqldump)은 클러스터 CronJob으로 별도 운영. 클러스터 join도 별도 프로비저닝.
+  # join 토큰 파라미터 경로. CP(발행)·app-asg(수신)와 같은 값을 봐야 한다.
+  join_param = "/${var.project}/${var.env}/${var.ssm_parameter_path}/${var.join_parameter_name}"
+
+  # user_data: hostname → (정적 EBS가 있으면) MySQL 볼륨 포맷/마운트 → kubeadm join.
+  # MySQL 백업(mysqldump)은 클러스터 CronJob으로 별도 운영.
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
-    hostname     = var.hostname
-    mysql_static = local.mysql_static
-    mount_point  = var.mysql_mount_point
+    hostname            = var.hostname
+    mysql_static        = local.mysql_static
+    mount_point         = var.mysql_mount_point
+    join_param          = local.join_param
+    join_retry_attempts = var.join_retry_attempts
+    node_labels         = var.node_labels
   })
 }
 

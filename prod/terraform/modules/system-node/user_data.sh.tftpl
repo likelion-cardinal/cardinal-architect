@@ -1,9 +1,12 @@
 #!/bin/bash
 # System Worker 부팅 스크립트
-#  - hostname 설정
-#  - (정적 EBS가 있을 때) MySQL 데이터용 EBS를 포맷 후 지정 디렉토리에 마운트
-#    → 파드는 이 디렉토리를 hostPath PV로 사용
+#  1) hostname 설정
+#  2) (정적 EBS가 있을 때) MySQL 데이터용 EBS를 포맷 후 지정 디렉토리에 마운트
+#     → 파드는 이 디렉토리를 hostPath PV로 사용. join보다 먼저 끝내야 파드가 뜰 때 경로가 있다.
+#  3) SSM Parameter Store에서 join 커맨드를 받아 kubeadm join (App Worker와 동일 경로)
+# 로그: /var/log/cardinal-join.log
 set -euxo pipefail
+exec > >(tee -a /var/log/cardinal-join.log) 2>&1
 
 hostnamectl set-hostname ${hostname}
 
@@ -39,3 +42,53 @@ if [ -n "$DATA_DEV" ]; then
   mount -a
 fi
 %{ endif ~}
+
+# ═══════════════════════════════════════════════════════
+#  kubeadm join — CP가 SSM에 발행한 커맨드를 받아 붙는다
+# ═══════════════════════════════════════════════════════
+# 이미 클러스터에 붙은 노드면(재부팅 등) 여기서 끝낸다.
+if [ -f /etc/kubernetes/kubelet.conf ]; then
+  echo "already joined; skip"
+  exit 0
+fi
+
+# ── awscli 확보 (AMI에 없을 수 있음) ──
+if ! command -v aws >/dev/null 2>&1; then
+  dnf install -y unzip
+  curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+  unzip -q /tmp/awscliv2.zip -d /tmp
+  /tmp/aws/install
+fi
+export PATH="$PATH:/usr/local/bin"
+
+# ── IMDSv2 메타데이터 ──
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+meta() { curl -s -H "X-aws-ec2-metadata-token: $TOKEN" "http://169.254.169.254/latest/meta-data/$1"; }
+INSTANCE_ID=$(meta instance-id)
+REGION=$(meta placement/region)
+AZ=$(meta placement/availability-zone)
+
+# 이 노드는 ASG가 아니라 고정 EC2지만, Cluster Autoscaler가 클러스터 전체 노드를
+# EC2와 대조하므로 provider-id는 동일하게 필요하다.
+cat >/etc/sysconfig/kubelet <<EOF
+KUBELET_EXTRA_ARGS=--provider-id=aws:///$AZ/$INSTANCE_ID --node-labels=${node_labels}
+EOF
+
+# CP 부팅과 경쟁하므로(토큰 발행 전에 여기 도달할 수 있다) 재시도로 흡수한다.
+JOINED=0
+for _ in $(seq 1 ${join_retry_attempts}); do
+  JOIN_CMD=$(aws ssm get-parameter --name "${join_param}" --with-decryption \
+    --query Parameter.Value --output text --region "$REGION" 2>/dev/null || true)
+
+  if [ -n "$JOIN_CMD" ] && [ "$JOIN_CMD" != "None" ]; then
+    if bash -c "$JOIN_CMD"; then JOINED=1; break; fi
+    kubeadm reset -f || true
+  fi
+  sleep 10
+done
+
+if [ "$JOINED" -ne 1 ]; then
+  echo "kubeadm join failed after ${join_retry_attempts} attempts" >&2
+  exit 1
+fi
