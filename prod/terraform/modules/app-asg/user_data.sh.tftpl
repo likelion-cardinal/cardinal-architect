@@ -1,0 +1,59 @@
+#!/bin/bash
+# App Worker 부팅 스크립트 (ASG가 띄우는 모든 신규 노드가 실행)
+#  1) provider-id 등 kubelet 인자 고정 (Cluster Autoscaler의 노드↔EC2 매핑에 필수)
+#  2) SSM Parameter Store에서 join 커맨드를 받아 kubeadm join
+#     → CP가 아직 토큰을 올리지 않았을 수 있으므로 재시도한다
+# 로그: /var/log/cardinal-join.log (cloud-init 로그와 별개로 join만 따로 본다)
+set -euxo pipefail
+exec > >(tee -a /var/log/cardinal-join.log) 2>&1
+
+# 이미 클러스터에 붙은 노드면(재부팅 등) 아무것도 하지 않는다.
+if [ -f /etc/kubernetes/kubelet.conf ]; then
+  echo "already joined; skip"
+  exit 0
+fi
+
+# ── awscli 확보 (AMI에 없을 수 있음) ──
+if ! command -v aws >/dev/null 2>&1; then
+  dnf install -y unzip
+  curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+  unzip -q /tmp/awscliv2.zip -d /tmp
+  /tmp/aws/install
+fi
+export PATH="$PATH:/usr/local/bin"
+
+# ── IMDSv2 메타데이터 ──
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+meta() { curl -s -H "X-aws-ec2-metadata-token: $TOKEN" "http://169.254.169.254/latest/meta-data/$1"; }
+INSTANCE_ID=$(meta instance-id)
+REGION=$(meta placement/region)
+AZ=$(meta placement/availability-zone)
+
+# ── 1) kubelet 추가 인자 ──
+# provider-id가 없으면 Cluster Autoscaler가 노드와 EC2 인스턴스를 매핑하지 못해
+# scale-down이 영구히 막힌다. kubeadm의 systemd drop-in이 이 파일을 읽는다.
+cat >/etc/sysconfig/kubelet <<EOF
+KUBELET_EXTRA_ARGS=--provider-id=aws:///$AZ/$INSTANCE_ID --node-labels=${node_labels}
+EOF
+
+# ── 2) join 커맨드 수신 → 실행 ──
+# 파라미터에는 CP가 갱신 저장한 "kubeadm join <ep> --token ... --discovery-token-ca-cert-hash ..."
+# 전문이 SecureString으로 들어 있다. 토큰 TTL 만료·CP 미기동을 재시도로 흡수한다.
+JOINED=0
+for _ in $(seq 1 ${join_retry_attempts}); do
+  JOIN_CMD=$(aws ssm get-parameter --name "${join_param}" --with-decryption \
+    --query Parameter.Value --output text --region "$REGION" 2>/dev/null || true)
+
+  if [ -n "$JOIN_CMD" ] && [ "$JOIN_CMD" != "None" ]; then
+    # join 실패(만료된 토큰 등)는 다음 루프에서 새 토큰으로 재시도한다.
+    if bash -c "$JOIN_CMD"; then JOINED=1; break; fi
+    kubeadm reset -f || true
+  fi
+  sleep 10
+done
+
+if [ "$JOINED" -ne 1 ]; then
+  echo "kubeadm join failed after ${join_retry_attempts} attempts" >&2
+  exit 1
+fi
