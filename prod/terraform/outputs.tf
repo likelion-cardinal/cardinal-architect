@@ -39,3 +39,7 @@ output "nat_asg_name" {
 output "nat_ami_id" {
   value = module.nat_instance.ami_id
 }
+
+output "ssm_endpoint_ids" {
+  value = module.endpoints.endpoint_ids
+}

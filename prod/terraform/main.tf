@@ -32,6 +32,18 @@ module "security" {
   blocked_cidrs = var.blocked_cidrs
 }
 
+module "endpoints" {
+  source = "./modules/endpoints"
+
+  project  = var.project
+  env      = var.env
+  vpc_id   = module.vpc.vpc_id
+  vpc_cidr = module.vpc.vpc_cidr
+
+  # 비용상 compute_az(첫 AZ=2a) private 서브넷 한 곳에만 배치.
+  subnet_ids = [module.vpc.private_subnet_ids[0]]
+}
+
 module "nat_instance" {
   source = "./modules/nat-instance"
 
