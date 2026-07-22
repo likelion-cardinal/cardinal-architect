@@ -21,3 +21,13 @@ output "node_instance_profile_name" {
 output "node_role_arn" {
   value = module.iam.role_arn
 }
+
+output "security_group_ids" {
+  value = {
+    alb           = module.security.alb_sg_id
+    nat           = module.security.nat_sg_id
+    control_plane = module.security.control_plane_sg_id
+    system        = module.security.system_sg_id
+    app           = module.security.app_sg_id
+  }
+}

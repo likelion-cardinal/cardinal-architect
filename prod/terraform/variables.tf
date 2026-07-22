@@ -38,3 +38,9 @@ variable "private_subnet_cidrs" {
   type        = list(string)
   default     = ["10.20.10.0/24", "10.20.12.0/24"]
 }
+
+variable "blocked_cidrs" {
+  description = "Public NACL에서 deny할 악성 IP/CIDR 목록 (ALB 로그 분석 결과)"
+  type        = list(string)
+  default     = []
+}
