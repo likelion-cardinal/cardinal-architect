@@ -51,3 +51,11 @@ output "control_plane_instance_id" {
 output "control_plane_private_ip" {
   value = module.control_plane.private_ip
 }
+
+output "system_node_instance_id" {
+  value = module.system_node.instance_id
+}
+
+output "system_node_private_ip" {
+  value = module.system_node.private_ip
+}

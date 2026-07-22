@@ -1,0 +1,41 @@
+#!/bin/bash
+# System Worker 부팅 스크립트
+#  - hostname 설정
+#  - (정적 EBS가 있을 때) MySQL 데이터용 EBS를 포맷 후 지정 디렉토리에 마운트
+#    → 파드는 이 디렉토리를 hostPath PV로 사용
+set -euxo pipefail
+
+hostnamectl set-hostname ${hostname}
+
+%{ if mysql_static ~}
+# ── MySQL 데이터 EBS 포맷 + 마운트 (${mount_point}) ──
+# Nitro(m7i-flex)는 EBS가 NVMe로 잡히고 device 이름이 재매핑되므로,
+# device 이름 대신 "루트가 아닌 데이터 디스크"를 찾아 LABEL로 안정적으로 마운트한다.
+
+# 루트 디스크 식별 (/ 가 마운트된 디스크)
+ROOT_DEV=""
+for DEV in $(lsblk -dpno NAME,TYPE | awk '$2=="disk"{print $1}'); do
+  if lsblk -no MOUNTPOINT "$DEV" | grep -q '^/$'; then ROOT_DEV="$DEV"; fi
+done
+
+# 데이터 디스크가 attach될 때까지 대기(최대 ~60s)
+DATA_DEV=""
+for _ in $(seq 1 30); do
+  for DEV in $(lsblk -dpno NAME,TYPE | awk '$2=="disk"{print $1}'); do
+    [ "$DEV" = "$ROOT_DEV" ] && continue
+    DATA_DEV="$DEV"
+  done
+  [ -n "$DATA_DEV" ] && break
+  sleep 2
+done
+
+if [ -n "$DATA_DEV" ]; then
+  # 파일시스템이 없으면 최초 1회만 포맷(기존 데이터 보존)
+  blkid "$DATA_DEV" || mkfs.ext4 -L mysql-data "$DATA_DEV"
+  mkdir -p ${mount_point}
+  # LABEL 기반 fstab (NVMe 재매핑에도 안정), nofail로 부팅 안전
+  grep -q 'LABEL=mysql-data' /etc/fstab || \
+    echo 'LABEL=mysql-data ${mount_point} ext4 defaults,nofail 0 2' >>/etc/fstab
+  mount -a
+fi
+%{ endif ~}

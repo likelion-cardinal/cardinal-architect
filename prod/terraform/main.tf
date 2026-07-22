@@ -70,3 +70,18 @@ module "control_plane" {
   # etcd 백업은 공유 S3 버킷 생성 후 버킷 이름을 주입하면 cron 활성화.
   # etcd_backup_bucket = aws_s3_bucket.shared.bucket
 }
+
+module "system_node" {
+  source = "./modules/system-node"
+
+  project               = var.project
+  env                   = var.env
+  subnet_id             = module.vpc.private_subnet_ids[0] # compute_az(첫 AZ=2a) private
+  security_group_id     = module.security.system_sg_id
+  instance_profile_name = module.iam.instance_profile_name
+
+  # MySQL 데이터용 정적 EBS. 크기 지정 시 노드 AZ에 생성·부착 후 mysql_mount_point에 마운트.
+  # 파드는 이 디렉토리를 hostPath PV로 사용. 백업(mysqldump)은 클러스터 CronJob으로 별도.
+  # mysql_data_volume_size = 20
+  # mysql_mount_point      = "/mnt/mysql-data"
+}
