@@ -108,6 +108,21 @@ module "system_node" {
   # mysql_mount_point      = "/mnt/mysql-data"
 }
 
+module "dns" {
+  source = "./modules/dns"
+
+  # 도메인을 아직 안 샀으면 통째로 건너뛴다. tfvars에 domain_name을 채우는 순간 생성된다.
+  count = var.domain_name != "" ? 1 : 0
+
+  project     = var.project
+  env         = var.env
+  domain_name = var.domain_name
+
+  # 가비아 네임서버를 Route53 NS로 바꾸기 전에는 검증이 끝날 수 없다.
+  # NS 전파를 확인한 뒤 true로 올려 apply하면 발급 완료를 보장받는다.
+  wait_for_validation = var.wait_for_certificate_validation
+}
+
 module "app_asg" {
   source = "./modules/app-asg"
 

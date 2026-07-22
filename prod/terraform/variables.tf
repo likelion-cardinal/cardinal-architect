@@ -45,6 +45,21 @@ variable "blocked_cidrs" {
   default     = []
 }
 
+# 도메인은 나중에 사서 붙여도 되므로 기본값을 빈 문자열로 둔다.
+# 비어 있으면 dns 모듈 전체가 생성되지 않고(Hosted Zone 월 $0.50도 안 나간다),
+# 도메인 구매 후 이 값만 채우면 Zone·인증서가 따라 만들어진다.
+variable "domain_name" {
+  description = "구매한 apex 도메인 (예: cardinal.kr). 비우면 dns 모듈을 건너뛴다"
+  type        = string
+  default     = ""
+}
+
+variable "wait_for_certificate_validation" {
+  description = "ACM 발급 완료까지 apply를 대기할지. 가비아 네임서버를 Route53 NS로 바꾸고 전파된 뒤 true로 올린다"
+  type        = bool
+  default     = false
+}
+
 # k8s 사전 설치 커스텀 AMI. CP·System·App 워커가 모두 이 하나를 공유한다
 # (차이는 부팅 후 kubeadm init이냐 join이냐뿐).
 # 기본값을 두지 않아 var-file 없이 apply하면 즉시 실패한다 —

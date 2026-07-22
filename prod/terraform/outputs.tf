@@ -60,6 +60,20 @@ output "system_node_private_ip" {
   value = module.system_node.private_ip
 }
 
+# dns 모듈은 domain_name이 비면 생성되지 않으므로 셋 다 null이 된다.
+# 도메인 구매 후 apply하면 name_servers를 등록기관(가비아 등) 콘솔에 그대로 입력한다.
+output "route53_name_servers" {
+  value = one(module.dns[*].name_servers)
+}
+
+output "acm_certificate_arn" {
+  value = one(module.dns[*].certificate_arn)
+}
+
+output "acm_certificate_status" {
+  value = one(module.dns[*].certificate_status)
+}
+
 output "app_asg_name" {
   value = module.app_asg.asg_name
 }
