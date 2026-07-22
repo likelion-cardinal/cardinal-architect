@@ -127,6 +127,40 @@ module "dns" {
   wait_for_validation = var.wait_for_certificate_validation
 }
 
+module "alb" {
+  source = "./modules/alb"
+
+  project           = var.project
+  env               = var.env
+  vpc_id            = module.vpc.vpc_id
+  subnet_ids        = module.vpc.public_subnet_ids # 2 AZ 필수
+  security_group_id = module.security.alb_sg_id
+  access_log_bucket = aws_s3_bucket.shared.bucket
+
+  # 인증서가 "발급 완료"된 뒤에만 443을 연다. PENDING_VALIDATION 상태로 리스너를
+  # 만들면 실패하기 때문이다. 그전까지는 80이 Target Group으로 그대로 forward한다.
+  enable_https    = var.domain_name != "" && var.wait_for_certificate_validation
+  certificate_arn = one(module.dns[*].certificate_arn)
+
+  # Ingress Controller가 열 NodePort. 배포 후 실제 포트에 맞춰야 한다.
+  # target_port = 30080
+}
+
+# 도메인 → ALB. dns 모듈과 alb 모듈이 서로를 참조하지 않도록 wiring은 root에 둔다.
+resource "aws_route53_record" "apex" {
+  count = var.domain_name != "" ? 1 : 0
+
+  zone_id = one(module.dns[*].zone_id)
+  name    = var.domain_name
+  type    = "A"
+
+  alias {
+    name                   = module.alb.dns_name
+    zone_id                = module.alb.zone_id
+    evaluate_target_health = false
+  }
+}
+
 module "app_asg" {
   source = "./modules/app-asg"
 
@@ -148,6 +182,8 @@ module "app_asg" {
   min_size = 1
   max_size = 3
 
-  # ALB Target Group 등록은 alb 모듈 생성 후 주입 (그전엔 EC2 헬스체크).
-  # target_group_arns = [module.alb.target_group_arn]
+  # Target Group을 붙이면 ASG 헬스체크가 EC2에서 ELB로 바뀐다.
+  # Ingress Controller가 뜨기 전에 붙이면 헬스체크가 계속 실패해 ASG가 노드를
+  # 5분마다 교체한다. 그래서 클러스터에 Ingress를 올린 뒤 이 값을 true로 바꾼다.
+  target_group_arns = var.register_app_nodes_to_alb ? [module.alb.target_group_arn] : []
 }

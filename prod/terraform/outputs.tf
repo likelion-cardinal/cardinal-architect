@@ -79,6 +79,19 @@ output "acm_certificate_status" {
   value = one(module.dns[*].certificate_status)
 }
 
+# 도메인 연결 전에는 이 주소로 직접 접속해 동작을 확인한다.
+output "alb_dns_name" {
+  value = module.alb.dns_name
+}
+
+output "alb_target_group_arn" {
+  value = module.alb.target_group_arn
+}
+
+output "alb_https_enabled" {
+  value = module.alb.https_enabled
+}
+
 output "app_asg_name" {
   value = module.app_asg.asg_name
 }

@@ -46,6 +46,13 @@ variable "control_plane_private_ip" {
   default     = "10.20.10.10"
 }
 
+# Ingress Controller 배포 전에 켜면 ELB 헬스체크 실패로 App 노드가 계속 교체된다.
+variable "register_app_nodes_to_alb" {
+  description = "App Worker ASG를 ALB Target Group에 등록할지. 클러스터에 Ingress Controller를 올린 뒤 true로 바꾼다"
+  type        = bool
+  default     = false
+}
+
 variable "alb_log_retention_days" {
   description = "공유 버킷 alb-logs/ 보존 기간(일). 축제 후 IP 분석이 끝나면 쌓아둘 이유가 없다"
   type        = number
