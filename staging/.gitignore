@@ -17,3 +17,5 @@ override.tf.json
 .terraform.lock.hcl.bak
 tfplan
 *.tfplan
+
+docker-compose/.env

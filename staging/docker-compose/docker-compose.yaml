@@ -1,0 +1,61 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: cardinal-mysql
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Seoul
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - cardinal-net
+    
+  backend:
+    image: ghcr.io/likelion-cardinal/cardinal-be-staging:staging
+    container_name: cardinal-be-staging
+    restart: unless-stopped
+    ports:
+      - "3000:8055"
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Seoul
+      - SPRING_PROFILES_ACTIVE=local
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8055/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - cardinal-net
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 30 --label-enable --cleanup --revive-stopped
+    networks:
+      - cardinal-net
+
+networks:
+  cardinal-net:
+    driver: bridge
+
+volumes:
+  mysql-data:
