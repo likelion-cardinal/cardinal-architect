@@ -1,0 +1,71 @@
+ingress-nginx 설치 (App 노드 DaemonSet)
+======================================================================
+(이 디렉토리에서 실행)
+
+// 네임스페이스는 업스트림 base 에 포함되어 있어 따로 만들지 않는다
+1. kubectl apply -k .
+
+// 기동 대기 (App 노드마다 1개)
+2. kubectl -n ingress-nginx rollout status ds/ingress-nginx-controller
+
+// NodePort 확인 — 30080 이어야 ALB 타겟그룹과 맞는다
+3. kubectl -n ingress-nginx get svc ingress-nginx-controller
+
+// 노드에서 직접 찔러보기 (CP 에서 실행)
+4. curl -i http://<App노드 사설IP>:30080/
+   → 404 Not Found 가 정상. Ingress 규칙이 아직 없다는 뜻.
+   → connection refused 면 NodePort 가 30080 이 아니거나 파드가 안 뜬 것.
+
+// ALB 등록 (여기서 처음 true 로)
+5. prod.tfvars: register_app_nodes_to_alb = true
+   terraform apply
+
+
+포트 매핑
+----------------------------------------------------------------------
+ALB 타겟그룹 port 30080  ←→  Service nodePort 30080  (http)
+                              Service nodePort 30443  (https, ALB 미사용)
+
+ALB 가 TLS 를 종료하므로 클러스터 안은 평문 HTTP.
+30443 은 쓰지 않지만 Service 가 두 포트를 가지므로 고정해 둔다.
+
+
+배치
+----------------------------------------------------------------------
+DaemonSet   nodeSelector: cardinal.io/role=application
+            → App 노드에만. CP·System 노드에는 안 뜬다.
+            → CA 가 노드를 늘리면 자동으로 따라 늘어난다.
+
+externalTrafficPolicy: Cluster
+            → 파드가 없는 노드로 들어와도 kube-proxy 가 넘겨준다.
+            → DaemonSet 롤링 업데이트 중에도 헬스체크가 안 깨진다.
+            → Local 로 바꾸면 클라이언트 IP 가 보존되지만, 업데이트 중
+              그 노드가 unhealthy 가 되어 ASG 가 교체할 위험이 있다.
+
+
+kustomization 이 하는 일
+----------------------------------------------------------------------
+1) 업스트림 baremetal deploy.yaml (v1.15.1) 을 원격으로 가져옴
+2) 거기 있는 Deployment 를 $patch: delete 로 제거
+3) daemonset.yaml 로 대체 (kustomize 는 kind 를 바꿀 수 없어 이 방식)
+4) Service 의 nodePort 를 30080/30443 으로 고정
+5) admission webhook Job 도 App 노드에서 돌도록 nodeSelector 주입
+
+버전 올릴 때는 kustomization.yaml 의 controller-v1.15.1 과
+daemonset.yaml 의 image 태그를 함께 바꿀 것 (두 곳이다).
+
+
+주의
+----------------------------------------------------------------------
+- 5번을 먼저 하면 30080 에 응답이 없어 ASG 가 App 노드를 5분마다 교체한다.
+  반드시 1~4 를 먼저 끝낼 것.
+- 원격 base 를 받으므로 CP 에서 raw.githubusercontent.com egress 필요.
+- Ingress 리소스는 별도 파일. 이것만 깔면 404 만 응답한다.
+
+
+다음
+----------------------------------------------------------------------
+- manifest/app-node/  에 fe·be Deployment + ClusterIP Service + Ingress
+- manifest/system-node/prometheus-grafana/  에 grafana 용 Ingress
+  (네임스페이스가 달라 Ingress 리소스를 각 네임스페이스에 하나씩 둔다)
+- Ingress 에는 ingressClassName: nginx 를 반드시 명시
