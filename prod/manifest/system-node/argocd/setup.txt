@@ -1,0 +1,26 @@
+ArgoCD 설치
+======================================================================
+(이 디렉토리에서 실행)
+
+// 네임스페이스 생성
+1. kubectl create namespace argocd
+
+// kustomization 파일 실행
+2. kubectl apply -k .
+
+// CRD 등록될 때까지 대기
+3. kubectl -n argocd rollout status statefulset/argocd-application-controller
+
+// private repo 접근용 크레덴셜 등록
+4. kubectl -n argocd create secret generic repo-cardinal-architect \
+     --from-literal=type=git \
+     --from-literal=url=https://github.com/likelion-cardinal/cardinal-architect.git \
+     --from-literal=username=sohappytoday \
+     --from-literal=password=<PAT>
+
+   kubectl -n argocd label secret repo-cardinal-architect \
+     argocd.argoproj.io/secret-type=repository
+
+// 어떤 Git을 볼지 지시
+5. kubectl apply -f application.yaml
+
