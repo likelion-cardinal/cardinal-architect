@@ -84,6 +84,7 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /home/ec2-user/.docker/config.json:/config.json:ro
     command: --interval 30 --label-enable --cleanup --revive-stopped
     networks:
       - cardinal-net
