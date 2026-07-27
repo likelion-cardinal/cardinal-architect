@@ -1,6 +1,6 @@
 services:
   mysql:
-    image: mysql:8.0
+    image: mysql:8.4
     container_name: cardinal-mysql
     restart: unless-stopped
     env_file:
@@ -17,7 +17,40 @@ services:
       start_period: 20s
     networks:
       - cardinal-net
-    
+
+  redis:
+    image: redis:7
+    container_name: cardinal-redis
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Seoul
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cardinal-net
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: cardinal-rabbitmq
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Seoul
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USERNAME}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - cardinal-net
+
   backend:
     image: ghcr.io/likelion-cardinal/cardinal-be-staging:staging
     container_name: cardinal-be-staging
@@ -32,8 +65,12 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8055/actuator/health"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8055/"]
       interval: 30s
       timeout: 10s
       retries: 5
