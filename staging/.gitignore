@@ -19,3 +19,4 @@ tfplan
 *.tfplan
 
 docker-compose/.env
+docker-compose/nginx

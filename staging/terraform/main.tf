@@ -47,7 +47,7 @@ resource "aws_key_pair" "cardinal" {
 # SG
 resource "aws_security_group" "app" {
   name        = "${local.name}-app-sg"
-  description = "staging app: SSH from my IP, FE 3000"
+  description = "staging app: SSH from my IP, HTTP/HTTPS 80/443"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {

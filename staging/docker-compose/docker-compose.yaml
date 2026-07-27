@@ -55,8 +55,6 @@ services:
     image: ghcr.io/likelion-cardinal/cardinal-be-staging:staging
     container_name: cardinal-be-staging
     restart: unless-stopped
-    ports:
-      - "3000:8055"
     env_file:
       - .env
     environment:
@@ -90,9 +88,38 @@ services:
     networks:
       - cardinal-net
 
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: cardinal-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot-conf:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    depends_on:
+      - backend
+    networks:
+      - cardinal-net
+
+  certbot:
+    image: certbot/certbot
+    container_name: cardinal-certbot
+    volumes:
+      - certbot-conf:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    entrypoint: >
+      /bin/sh -c "trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;"
+    networks:
+      - cardinal-net
+
 networks:
   cardinal-net:
     driver: bridge
 
 volumes:
   mysql-data:
+  certbot-conf:
+  certbot-www:
