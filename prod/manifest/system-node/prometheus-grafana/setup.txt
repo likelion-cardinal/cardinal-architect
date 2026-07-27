@@ -1,0 +1,13 @@
+모니터링 설치 (Prometheus + Grafana + node-exporter)
+======================================================================
+(이 디렉토리에서 실행)
+
+// 네임스페이스 생성
+1. kubectl create namespace monitoring
+
+// Grafana admin 비밀번호 설정
+2. kubectl -n monitoring create secret generic grafana-admin \
+     --from-literal=password=<원하는 비밀번호>
+
+// 전체 배포
+3. kubectl apply -f .

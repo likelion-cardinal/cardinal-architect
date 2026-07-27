@@ -1,0 +1,226 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: monitoring
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/metrics
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: monitoring
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 30s
+      evaluation_interval: 30s
+      external_labels:
+        cluster: cardinal-prod
+
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets: ["localhost:9090"]
+
+      - job_name: kubernetes-apiservers
+        kubernetes_sd_configs:
+          - role: endpoints
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        authorization:
+          credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - source_labels:
+              - __meta_kubernetes_namespace
+              - __meta_kubernetes_service_name
+              - __meta_kubernetes_endpoint_port_name
+            action: keep
+            regex: default;kubernetes;https
+
+      - job_name: kubernetes-nodes
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        authorization:
+          credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+
+      - job_name: kubernetes-cadvisor
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        metrics_path: /metrics/cadvisor
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        authorization:
+          credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+
+      - job_name: node-exporter
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: ["monitoring"]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: node-exporter
+          - source_labels: [__meta_kubernetes_endpoint_node_name]
+            target_label: node
+
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels:
+              - __address__
+              - __meta_kubernetes_pod_annotation_prometheus_io_port
+            action: replace
+            target_label: __address__
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus
+      nodeSelector:
+        cardinal.io/role: system
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      initContainers:
+        - name: chown-data
+          image: busybox:1.37
+          command: ["sh", "-c", "chown -R 65534:65534 /data"]
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      containers:
+        - name: prometheus
+          image: quay.io/prometheus/prometheus:v3.13.1
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/data
+            - --storage.tsdb.retention.time=15d
+            - --storage.tsdb.retention.size=5GB
+            - --web.enable-lifecycle
+          ports:
+            - name: http
+              containerPort: 9090
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: data
+          hostPath:
+            path: /mnt/prometheus-data
+            type: DirectoryOrCreate
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: http
