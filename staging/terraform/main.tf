@@ -6,12 +6,11 @@ locals {
   }
 }
 
-# default VPC를 그대로 사용한다(직접 만들지 않음).
+# default VPC
 data "aws_vpc" "default" {
   default = true
 }
 
-# default VPC의 서브넷 중 하나를 골라 인스턴스를 올린다.
 data "aws_subnets" "default" {
   filter {
     name   = "vpc-id"
@@ -19,12 +18,23 @@ data "aws_subnets" "default" {
   }
 }
 
-# 최신 Amazon Linux 2023 (x86_64). prod control-plane과 동일하게 SSM 파라미터로 조회.
-data "aws_ssm_parameter" "al2023" {
-  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+# 최신 Amazon Linux 2023 (x86_64). ec2:DescribeImages 권한만 있으면 조회 가능
+# (SSM Parameter 조회는 ssm:GetParameter 권한이 필요해 terraform-test 유저에선 막힘).
+data "aws_ami" "al2023" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-2023.*-x86_64"]
+  }
+
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
 }
 
-# 로컬 cardinal.pem 의 공개키를 EC2 키페어로 등록.
 resource "aws_key_pair" "cardinal" {
   key_name   = "${local.name}-key"
   public_key = trimspace(file(pathexpand(var.public_key_path)))
@@ -34,26 +44,34 @@ resource "aws_key_pair" "cardinal" {
   })
 }
 
-# ── 보안그룹: SSH(22, 내 IP), FE(3000), 아웃바운드 전체 ──
+# SG
 resource "aws_security_group" "app" {
   name        = "${local.name}-app-sg"
   description = "staging app: SSH from my IP, FE 3000"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
-    description = "SSH (my IP only)"
+    description = "SSH (my IPs)"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [var.ssh_ingress_cidr]
+    cidr_blocks = var.ssh_ingress_cidrs
   }
 
   ingress {
-    description = "FE (frontend)"
-    from_port   = 3000
-    to_port     = 3000
+    description = "HTTP"
+    from_port   = 80
+    to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = [var.fe_ingress_cidr]
+    cidr_blocks = [var.web_ingress_cidr]
+  }
+
+  ingress {
+    description = "HTTPS"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [var.web_ingress_cidr]
   }
 
   egress {
@@ -69,9 +87,9 @@ resource "aws_security_group" "app" {
   })
 }
 
-# ── 단일 staging EC2 (Public, SSH + FE 확인용) ──
+# 단일 staging ec2
 resource "aws_instance" "app" {
-  ami                    = nonsensitive(data.aws_ssm_parameter.al2023.value)
+  ami                    = data.aws_ami.al2023.id
   instance_type          = var.instance_type
   subnet_id              = data.aws_subnets.default.ids[0]
   vpc_security_group_ids = [aws_security_group.app.id]

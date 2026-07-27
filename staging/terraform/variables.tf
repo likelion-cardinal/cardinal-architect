@@ -36,17 +36,20 @@ variable "public_key_path" {
   default     = "~/.ssh/cardinal.pub"
 }
 
-# SSH(22)를 열어줄 대역. 기본값은 이 설정을 만든 시점의 내 공인 IP.
-# IP가 바뀌면 이 값만 갱신하면 된다.
-variable "ssh_ingress_cidr" {
-  description = "SSH(22)를 허용할 CIDR. 내 IP만 여는 것을 권장"
-  type        = string
-  default     = "61.73.4.159/32"
+# SSH(22)를 열어줄 대역. 기본값은 이 설정을 만든 시점의 내 공인 IP들.
+# IP가 바뀌거나 접속 위치가 늘면 이 목록만 갱신하면 된다.
+variable "ssh_ingress_cidrs" {
+  description = "SSH(22)를 허용할 CIDR 목록. 내 IP만 여는 것을 권장"
+  type        = list(string)
+  default = [
+    "61.73.4.159/32",   # 집
+    "118.235.13.43/32", # 공인 IP
+  ]
 }
 
-# FE(3000)는 브라우저로 아무 데서나 확인하려고 열어둔다. 필요 시 좁혀라.
-variable "fe_ingress_cidr" {
-  description = "FE 포트(3000)를 허용할 CIDR"
+# 웹(80/443)은 브라우저로 아무 데서나 확인하려고 열어둔다. 필요 시 좁혀라.
+variable "web_ingress_cidr" {
+  description = "웹 포트(80/443)를 허용할 CIDR"
   type        = string
   default     = "0.0.0.0/0"
 }

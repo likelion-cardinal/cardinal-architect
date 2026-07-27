@@ -13,7 +13,7 @@ output "ssh_command" {
   value       = "ssh -i ~/.ssh/cardinal.pem ec2-user@${aws_instance.app.public_ip}"
 }
 
-output "fe_url" {
-  description = "프론트엔드 접속 URL(3000)"
-  value       = "http://${aws_instance.app.public_ip}:3000"
+output "web_url" {
+  description = "웹 접속 URL(80/443)"
+  value       = "http://${aws_instance.app.public_ip}"
 }
