@@ -9,5 +9,17 @@
 2. kubectl -n monitoring create secret generic grafana-admin \
      --from-literal=password=<원하는 비밀번호>
 
-// 전체 배포
+// 전체 배포 (ingress.yaml 포함)
 3. kubectl apply -f .
+
+
+ingress.yaml 주의
+----------------------------------------------------------------------
+- ingress-nginx 가 먼저 떠 있어야 한다 (manifest/app-node/ingress-nginx/)
+- 접속: http://<ALB DNS>/grafana
+- rewrite-target 쓰면 안 됨. 프리픽스를 살려서 넘겨야 Grafana 가 인식한다
+  (grafana.yaml 의 GF_SERVER_SERVE_FROM_SUB_PATH=true 와 짝)
+- CSS 가 깨지면 위 env 두 개가 안 먹은 것
+- apply 하는 순간 Grafana 가 인터넷에 공개됨. 원치 않으면 이 파일만 빼고 apply
+- 도메인 사면 host: grafana.<도메인> + path: / 로 바꾸고 env 제거가 더 깔끔
+  (ACM 인증서는 dns/main.tf:10 이 이미 *.도메인 커버)

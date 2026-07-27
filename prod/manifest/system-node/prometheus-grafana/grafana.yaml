@@ -62,6 +62,10 @@ spec:
               value: "false"
             - name: GF_ANALYTICS_REPORTING_ENABLED
               value: "false"
+            - name: GF_SERVER_ROOT_URL
+              value: "%(protocol)s://%(domain)s/grafana/"
+            - name: GF_SERVER_SERVE_FROM_SUB_PATH
+              value: "true"
           ports:
             - name: http
               containerPort: 3000
