@@ -9,9 +9,7 @@ spec:
   source:
     repoURL: https://github.com/likelion-cardinal/cardinal-architect.git
     targetRevision: main
-    path: prod/manifest/app-node
-    directory:
-      include: application.yaml
+    path: prod/manifest/app-node/application
 
   destination:
     server: https://kubernetes.default.svc
