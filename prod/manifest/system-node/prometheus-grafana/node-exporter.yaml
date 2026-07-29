@@ -21,6 +21,10 @@ spec:
               - matchExpressions:
                   - key: cardinal.io/role
                     operator: Exists
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
       containers:
         - name: node-exporter
           image: quay.io/prometheus/node-exporter:v1.12.1
