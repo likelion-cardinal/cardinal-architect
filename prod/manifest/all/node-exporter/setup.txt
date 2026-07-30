@@ -1,0 +1,62 @@
+node-exporter 설치 (전 노드 DaemonSet)
+======================================================================
+(이 디렉토리에서 실행)
+
+// 네임스페이스 (prometheus-grafana 쪽에서 이미 만들었으면 그대로 통과)
+1. kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+// 배포
+2. kubectl apply -f .
+
+// 노드 수만큼 떠 있는지 확인 (CP 포함)
+3. kubectl -n monitoring get pods -l app=node-exporter -o wide
+     → DESIRED = 전체 노드 수. CP가 빠져 있으면 아래 "전 노드에 뜨는 조건" 참고
+
+
+왜 system-node/ 가 아니라 all/ 인가
+----------------------------------------------------------------------
+CP·system·app 세 그룹 전부에 뜨는 DaemonSet이라 특정 노드 그룹에 묶이지 않는다.
+원래 system-node/prometheus-grafana/ 에 있었지만, 그 디렉토리는 nodeSelector로
+system 노드에만 뜨는 것들(Prometheus·Grafana)의 자리다.
+
+
+전 노드에 뜨는 조건 (둘 다 필요)
+----------------------------------------------------------------------
+nodeAffinity   cardinal.io/role Exists   ← 키만 보고 값은 안 본다
+               control-plane / system / application 세 값 모두 통과
+               terraform 각 모듈의 node_labels 가 이 키를 붙인다
+               (control-plane/variables.tf:118, system-node:83, app-asg:113)
+
+toleration     node-role.kubernetes.io/control-plane:NoSchedule
+               이게 없으면 CP만 빠진다
+
+즉 라벨 키를 바꾸면 node-exporter가 조용히 그 노드를 건너뛴다. terraform 쪽
+node_labels 를 손볼 때 이 파일을 같이 확인할 것.
+
+
+Prometheus 와의 연결 (파일을 옮겨도 그대로 동작)
+----------------------------------------------------------------------
+Prometheus는 경로가 아니라 API 서비스 디스커버리로 찾는다:
+  prometheus.yaml:101  job_name: node-exporter
+                       role: endpoints, namespace monitoring
+                       service_name == node-exporter 인 것만 keep
+
+따라서 이 디렉토리의 Service 이름(node-exporter)과 네임스페이스(monitoring)를
+바꾸면 Prometheus 설정도 같이 고쳐야 한다.
+
+
+hostNetwork / hostPort 9100
+----------------------------------------------------------------------
+호스트 지표를 읽으려고 hostNetwork·hostPID 를 쓰므로 파드가 노드의 9100을 직접 점유한다.
+같은 노드에 9100을 쓰는 다른 것이 있으면 파드가 Pending 으로 멈춘다.
+SG에 9100을 열 필요는 없다 — Prometheus가 파드 네트워크 안에서 접근한다.
+
+
+확인
+----------------------------------------------------------------------
+kubectl -n monitoring get ds node-exporter
+  → DESIRED / CURRENT / READY 가 전체 노드 수와 같아야 함
+
+Prometheus UI → Status → Targets → node-exporter
+  → 노드 수만큼 UP. 노드가 죽어 사라진 뒤에도 남아 있으면 유령 Node 오브젝트 문제
+    (kubectl get nodes 로 NotReady 노드가 남아 있는지 확인)
