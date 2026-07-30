@@ -1,0 +1,58 @@
+CoreDNS PodDisruptionBudget
+======================================================================
+(이 디렉토리에서 실행)
+
+// 배포 (kube-system은 이미 있으므로 네임스페이스 생성 불필요)
+1. kubectl apply -f .
+
+// 확인
+2. kubectl -n kube-system get pdb coredns
+     → ALLOWED DISRUPTIONS 가 1 이어야 정상
+       0 이면 CoreDNS 레플리카가 1개만 Ready인 상태 — 먼저 그것부터 볼 것
+
+
+이게 무엇인가
+----------------------------------------------------------------------
+파드가 아니다. 컨테이너를 띄우지 않는 정책 오브젝트로, 누군가 Eviction API를
+호출할 때 apiserver가 참조하는 규칙이다.
+
+보호 대상인 CoreDNS도 DaemonSet이 아니라 Deployment(2 레플리카)라서 노드 2개에만 뜬다.
+cluster-autoscaler가 --skip-nodes-with-system-pods=false 로 돌기 때문에 그 노드도
+축소 후보가 되는데, PDB가 없으면 두 레플리카가 한 노드에 앉아 있을 때 동시에 evict돼
+클러스터 전체 DNS가 수 초~수십 초 끊긴다. kubeadm 기본 anti-affinity는 soft라
+같은 노드에 앉는 것을 막지 못한다.
+
+minAvailable: 1 은 동시 제거만 막고 하나씩 교체는 허용한다 — 축소를 막는 게 아니라
+직렬화한다. 레플리카 수(2)와 같은 값을 주면 어떤 파드도 evict할 수 없어 CA 축소가
+영구히 막히므로 올리지 말 것.
+
+한계: voluntary disruption(drain/eviction)에만 작동한다. ASG 헬스체크 실패로
+인스턴스가 즉사하는 involuntary disruption은 막지 못한다.
+
+
+적용 순서
+----------------------------------------------------------------------
+cluster-autoscaler 배포보다 먼저 넣을 것 (축소가 시작되기 전에 보호막이 있어야 한다).
+선행 조건은 CoreDNS가 떠 있는 것뿐 — kubeadm init 직후면 이미 만족한다.
+
+
+셀렉터 라벨 확인 (버전에 따라 다를 수 있음)
+----------------------------------------------------------------------
+kubectl -n kube-system get deploy coredns -o jsonpath='{.spec.selector.matchLabels}'
+  → {"k8s-app":"kube-dns"} 가 나와야 coredns-pdb.yaml 의 selector와 맞는다.
+    다르면 PDB가 아무 파드도 못 잡아 조용히 무력화된다(에러가 안 난다).
+
+
+지금 CoreDNS가 어디 떠 있는지
+----------------------------------------------------------------------
+kubectl -n kube-system get pods -l k8s-app=kube-dns -o wide
+  → 두 파드가 서로 다른 노드면 위험도가 낮고, 같은 노드면 PDB가 실제로 일한다.
+
+
+동작 확인 (선택)
+----------------------------------------------------------------------
+CoreDNS가 떠 있는 노드를 일부러 drain해본다:
+  kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
+  → 한 파드는 나가고, 두 번째는 "Cannot evict pod as it would violate the pod's
+    disruption budget" 로 거부되면 정상 동작.
+  kubectl uncordon <node>     ← 확인 끝나면 반드시 되돌릴 것
