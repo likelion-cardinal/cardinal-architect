@@ -24,3 +24,33 @@ ArgoCD 설치
 // 어떤 Git을 볼지 지시
 5. kubectl apply -f application.yaml
 
+
+replicas 0 으로 꺼둔 컴포넌트
+----------------------------------------------------------------------
+2 vCPU 노드라 안 쓰는 컴포넌트를 꺼서 cpu 60m / memory 104Mi 를 회수했다.
+셋 다 에러 없이 조용히 동작만 안 하므로, 아래 상황이 되면 kustomization.yaml
+의 replicas 를 1 로 올릴 것.
+
+- applicationset-controller : ApplicationSet CR 을 만들 때
+                              (안 켜면 CR 만 남고 Application 이 생기지 않음)
+- notifications-controller  : Slack/이메일 알림을 붙일 때
+                              (argocd-notifications-cm 에 트리거 설정 필요)
+- dex-server                : SSO(OIDC) 로그인을 붙일 때
+                              (argocd-cm 에 dex.config 를 넣는 순간 필요)
+
+dex 를 꺼도 admin 로컬 계정 로그인은 그대로 동작한다.
+
+
+application.yaml 주의
+----------------------------------------------------------------------
+- source 에 directory 블록을 두면 안 된다. 소스 타입이 Directory 로 고정돼
+  kustomize build 가 돌지 않고 kustomization.yaml 자체를 리소스로 apply 하려다
+  ComparisonError 가 난다. 블록을 빼면 path 에 kustomization.yaml 이 있을 때
+  자동으로 kustomize 로 인식한다.
+- path(prod/manifest/app-node/application) 가 리포에 없으면
+  "app path does not exist" 로 계속 재시도한다. 앱 매니페스트를 먼저 push 할 것.
+- 이 파일은 ArgoCD 관리 대상이 아니다(kustomization.yaml 의 resources 에 없음).
+  고쳤으면 selfHeal 이 아니라 kubectl apply 로 직접 반영해야 한다.
+- 배포될 앱 매니페스트에는 nodeSelector 를 직접 넣어야 app 노드로 간다.
+  kustomization.yaml 의 nodeSelector 패치는 argo-cd 자기 컴포넌트에만 걸린다.
+
