@@ -208,7 +208,7 @@ spec:
             name: prometheus-config
         - name: data
           hostPath:
-            path: /mnt/prometheus-data
+            path: /mnt/data/prometheus
             type: DirectoryOrCreate
 
 ---

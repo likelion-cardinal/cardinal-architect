@@ -98,7 +98,7 @@ spec:
             name: grafana-datasources
         - name: data
           hostPath:
-            path: /mnt/grafana-data
+            path: /mnt/data/grafana
             type: DirectoryOrCreate
 
 ---
