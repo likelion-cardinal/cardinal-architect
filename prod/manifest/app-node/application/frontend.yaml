@@ -6,7 +6,6 @@ metadata:
   labels:
     app: frontend
 spec:
-  # backend.yaml 과 같은 이유로 replicas 를 두지 않는다 (HPA 소관).
   strategy:
     type: RollingUpdate
     rollingUpdate:

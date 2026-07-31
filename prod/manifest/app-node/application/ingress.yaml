@@ -1,23 +1,15 @@
-# staging 의 nginx 컨테이너(conf.d + certbot)를 대체한다.
-# TLS 는 ALB(ACM)가 종료하므로 여기엔 tls 블록이 없다 — 클러스터 안은 평문 HTTP.
-apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: application
   namespace: default
   annotations:
-    # ALB 가 이미 https 를 처리했다. 여기서 또 리다이렉트하면 무한 루프가 난다.
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
-    # 이미지 업로드 대비. 기본값 1m 이면 큰 첨부가 413 으로 잘린다.
     nginx.ingress.kubernetes.io/proxy-body-size: "20m"
 spec:
   ingressClassName: nginx
-  # 도메인 구매 전이라 host 를 비워 둔다(grafana Ingress 와 동일한 방식).
-  # 도메인이 붙으면 rules[0].host 에 넣을 것.
   rules:
     - http:
         paths:
-          # nginx 는 긴 prefix 를 먼저 매칭하므로 /api 가 / 보다 우선한다.
           - path: /api
             pathType: Prefix
             backend:
