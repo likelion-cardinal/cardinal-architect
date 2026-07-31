@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq
+  namespace: database
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      nodeSelector:
+        cardinal.io/role: system
+      # RabbitMQ 의 데이터 디렉토리 이름은 노드명(rabbit@<hostname>)으로 정해진다.
+      # 파드 이름은 재배포마다 바뀌므로 hostname 을 고정하지 않으면 재시작할 때마다
+      # 빈 mnesia 디렉토리가 새로 생기고 큐가 사라진 것처럼 보인다.
+      hostname: rabbitmq
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      initContainers:
+        - name: chown-data
+          image: busybox:1.37
+          command: ["sh", "-c", "chown -R 999:999 /var/lib/rabbitmq"]
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rabbitmq
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:4-management
+          env:
+            - name: TZ
+              value: Asia/Seoul
+            - name: RABBITMQ_DEFAULT_USER
+              value: cardinal
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-secret
+                  key: password
+          ports:
+            - name: amqp
+              containerPort: 5672
+            - name: management
+              containerPort: 15672
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+          startupProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+            periodSeconds: 15
+            timeoutSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "status"]
+            periodSeconds: 60
+            timeoutSeconds: 15
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rabbitmq
+      volumes:
+        - name: data
+          # mysql·prometheus·grafana 와 같은 데이터 EBS(/mnt/data)를 나눠 쓴다.
+          hostPath:
+            path: /mnt/data/rabbitmq
+            type: DirectoryOrCreate
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: database
+spec:
+  selector:
+    app: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: amqp
+    - name: management
+      port: 15672
+      targetPort: management
