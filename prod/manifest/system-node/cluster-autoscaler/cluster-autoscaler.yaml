@@ -55,7 +55,9 @@ rules:
     resources: ["poddisruptionbudgets"]
     verbs: ["watch", "list"]
   - apiGroups: ["storage.k8s.io"]
-    resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities"]
+    # volumeattachments 가 빠지면 CA 가 1~2초마다 forbidden 에러를 내며 재시도한다.
+    # 스케일다운 때 그 노드에 붙은 볼륨을 확인하는 데 쓰인다.
+    resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities", "volumeattachments"]
     verbs: ["watch", "list", "get"]
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]

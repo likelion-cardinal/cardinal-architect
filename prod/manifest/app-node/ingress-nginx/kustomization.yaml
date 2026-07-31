@@ -14,22 +14,27 @@ patches:
         name: ingress-nginx-controller
         namespace: ingress-nginx
 
-  - patch: |-
-      apiVersion: v1
+  # target 을 명시한 JSON6902 로 둔다. 인라인 strategic merge 는 ports 리스트가
+  # 병합되지 않고 nodePort 가 조용히 누락되는 일이 있었다(에러도 안 난다).
+  # ports 순서는 업스트림 base 기준 0=http(80), 1=https(443).
+  - target:
+      version: v1
       kind: Service
-      metadata:
-        name: ingress-nginx-controller
-        namespace: ingress-nginx
-      spec:
-        type: NodePort
-        externalTrafficPolicy: Cluster
-        ports:
-          - name: http
-            port: 80
-            nodePort: 30080
-          - name: https
-            port: 443
-            nodePort: 30443
+      name: ingress-nginx-controller
+      namespace: ingress-nginx
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: NodePort
+      - op: add
+        path: /spec/externalTrafficPolicy
+        value: Cluster
+      - op: add
+        path: /spec/ports/0/nodePort
+        value: 30080
+      - op: add
+        path: /spec/ports/1/nodePort
+        value: 30443
 
   - target:
       kind: Job
