@@ -1,0 +1,113 @@
+애플리케이션 배포 (fe / be, ArgoCD 관리)
+======================================================================
+이 디렉토리는 ArgoCD 가 Git 을 보고 자동 동기화한다(prune·selfHeal).
+kubectl apply 로 직접 고치면 되돌려지므로, 변경은 Git 에 push 로 한다.
+
+다만 Secret 은 Git 에 없다. 아래 1~2 번은 최초 1회 손으로 만들어야 하고,
+이게 없으면 파드가 CreateContainerConfigError / ImagePullBackOff 로 멈춘다.
+
+
+선행 조건
+----------------------------------------------------------------------
+- system-node/mysql          (mysql.database.svc.cluster.local)
+- system-node/redis          (redis.database.svc.cluster.local)
+- system-node/rabbitmq       (rabbitmq.database.svc.cluster.local)
+- app-node/metrics-server    (HPA 가 동작하려면 필요)
+- app-node/ingress-nginx     (Ingress 를 실제로 받아주는 컨트롤러)
+- system-node/argocd         (이 디렉토리를 보는 Application 등록)
+
+
+1. 비밀값 Secret (namespace: default)
+----------------------------------------------------------------------
+key 이름이 곧 컨테이너 환경변수 이름이다(envFrom 으로 통째로 주입).
+
+kubectl -n default create secret generic app-secret \
+  --from-literal=MYSQL_LOCAL_PASSWORD='<mysql cardinal 계정 비밀번호>' \
+  --from-literal=RABBITMQ_PASSWORD='<rabbitmq 비밀번호>' \
+  --from-literal=ADMIN_PASSWORD='<관리자 비밀번호>' \
+  --from-literal=ADMIN_PASSWORD_HASH='<bcrypt 해시>' \
+  --from-literal=KAKAO_CLIENT_ID='<카카오 REST API 키>' \
+  --from-literal=KAKAO_CLIENT_SECRET='<카카오 시크릿>' \
+  --from-literal=R2_ACCESS_KEY_ID='<R2 액세스 키>' \
+  --from-literal=R2_SECRET_ACCESS_KEY='<R2 시크릿 키>' \
+  --from-literal=JWT_SECRET='<openssl rand -base64 48 결과>'
+
+※ MYSQL_LOCAL_PASSWORD 는 database 네임스페이스 mysql-secret 의 password 와,
+  RABBITMQ_PASSWORD 는 rabbitmq-secret 의 password 와 같은 값이어야 한다.
+
+※ bcrypt 해시의 $ 는 그대로 넣는다. docker compose 처럼 $$ 로 이스케이프하면
+  안 된다($$ 가 문자 그대로 들어가 로그인이 실패한다). 셸이 $ 를 건드리지
+  않도록 반드시 작은따옴표로 감쌀 것.
+    compose:  $$2b$$12$$b5Kk...
+    k8s   :   $2b$12$b5Kk...
+
+※ staging .env 에 있던 값을 그대로 쓰지 말 것. prod 는 새로 발급한다.
+
+
+2. ghcr 이미지 풀 시크릿 (namespace: default)
+----------------------------------------------------------------------
+staging 의 watchtower + /home/ec2-user/.docker/config.json 을 대체한다.
+
+kubectl -n default create secret docker-registry ghcr-secret \
+  --docker-server=ghcr.io \
+  --docker-username=<github 계정> \
+  --docker-password=<read:packages 권한 PAT>
+
+
+3. 동기화
+----------------------------------------------------------------------
+ArgoCD 가 3분 안에 알아서 가져간다. 기다리기 싫으면:
+  kubectl -n argocd patch app application --type merge \
+    -p '{"operation":{"sync":{}}}'
+
+확인:
+  kubectl -n argocd get app application
+  kubectl -n default get pod,svc,ingress,hpa
+
+
+4. 통신 확인 (CP 노드에서)
+----------------------------------------------------------------------
+  curl -i http://<App노드 사설IP>:30080/          → 프론트 index.html
+  curl -i http://<App노드 사설IP>:30080/api/...   → 백엔드 응답
+
+여기까지 되면 prod.tfvars 의 register_app_nodes_to_alb = true 로 apply.
+(ingress-nginx/setup.txt 참고 — 순서를 지킬 것)
+
+
+docker-compose 에서 무엇이 바뀌었나
+----------------------------------------------------------------------
+mysql / redis / rabbitmq   → system-node/ 로 이동 (database 네임스페이스)
+                             App 노드는 CA 가 줄일 수 있어 상태를 두면 안 된다
+backend / frontend         → Deployment + ClusterIP Service (이 디렉토리)
+nginx (conf.d 리버스프록시) → ingress.yaml + ingress-nginx 컨트롤러
+certbot                    → 삭제. TLS 는 ALB(ACM)가 종료한다
+watchtower                 → 삭제. 이미지 갱신은 ArgoCD 몫
+                             (CI 가 매니페스트의 태그를 바꿔 push 하면 ArgoCD 가 배포)
+.env                       → configmap.yaml (평문) + app-secret (비밀)
+depends_on: condition      → 없음. K8s 는 기동 순서를 보장하지 않는다.
+                             백엔드가 DB 연결 실패로 죽어도 재시작하며 따라잡는다
+
+
+이미지 태그 정책
+----------------------------------------------------------------------
+현재 backend.yaml / frontend.yaml 은 staging 이미지 경로를 그대로 쓰고 있다.
+prod 이미지 리포지토리가 정해지면 두 파일의 image 를 바꿀 것 (TODO 주석 표시).
+
+:staging / :latest 같은 가변 태그 + imagePullPolicy: Always 조합은
+"파드가 재시작되어야만" 새 이미지를 받는다. ArgoCD 는 태그가 그대로면 변화를
+감지하지 못하므로 자동 배포가 되지 않는다. 제대로 하려면 CI 가 커밋 SHA 태그로
+이미지를 올리고 이 매니페스트의 태그를 바꿔 push 해야 한다.
+
+
+주의
+----------------------------------------------------------------------
+- ConfigMap/Secret 만 바꾸면 파드는 재시작되지 않는다. 반영하려면
+    kubectl -n default rollout restart deploy/backend
+- JWT_COOKIE_SECURE=true 는 앱이 X-Forwarded-Proto 를 신뢰해야 동작한다.
+  Spring 이면 server.forward-headers-strategy=framework 확인.
+  쿠키가 안 내려가면 이것부터 의심할 것.
+- Ingress 에 host 가 없다. 도메인을 사면 rules[0].host 와 frontend-config 의
+  VITE_API_URL 을 함께 손볼 것.
+- Deployment 에 replicas 필드가 없는 건 실수가 아니다. 숫자를 박으면 HPA 가
+  늘린 값을 ArgoCD selfHeal 이 되돌려 파드가 계속 뜨고 죽는다.
+  파드 수를 조절하려면 hpa.yaml 의 minReplicas / maxReplicas 를 고칠 것.

@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: default
+data:
+  TZ: "Asia/Seoul"
+  #Spring Boot
+  SPRING_PROFILES_ACTIVE: "local"
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=70"
+  
+  # DB
+  MYSQL_LOCAL_URL: "jdbc:mysql://mysql.database.svc.cluster.local:3306/cardinal?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul"
+  MYSQL_LOCAL_USERNAME: "cardinal"
+  
+  # Redis
+  REDIS_HOST: "redis.database.svc.cluster.local"
+  REDIS_PORT: "6379"
+  
+  # RabbitMQ
+  RABBITMQ_HOST: "rabbitmq.database.svc.cluster.local"
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_USERNAME: "cardinal"
+
+  #Admin
+  ADMIN_USERNAME: "admin_cardinal"
+
+  #R2
+  R2_ENDPOINT: "https://7c4c4fe1e12f57b54b6057ed193e57f0.r2.cloudflarestorage.com"
+  R2_BUCKET: "cardinal-sogang"
+  R2_PUBLIC_URL: "https://pub-f657af7c06f9411db9a0f3d9063dd289.r2.dev"
+
+  # JWT 인증 기간
+  JWT_ACCESS_VALIDITY: "3600"
+  JWT_REFRESH_VALIDITY: "86400"
+  JWT_COOKIE_SECURE: "true"
+  JWT_COOKIE_SAME_SITE: "Lax"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: default
+data:
+  TZ: "Asia/Seoul"
+  VITE_API_URL: "/api"
+  VITE_ADMIN_PATH: "/admin"

@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: default
+  labels:
+    app: backend
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+      annotations:
+        prometheus.io/scrape: "false"
+    spec:
+      nodeSelector:
+        cardinal.io/role: application
+      imagePullSecrets:
+        - name: ghcr-secret
+      terminationGracePeriodSeconds: 30
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: backend
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: backend
+          image: ghcr.io/likelion-cardinal/cardinal-be-staging:staging  # 추후 prod로 변경
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: app-secret
+          ports:
+            - name: http
+              containerPort: 8055
+          resources:
+            requests:
+              cpu: 300m
+              # limit 과 같은 값으로 둔다. JVM 은 request 가 아니라 limit(1536Mi)을
+              # 컨테이너 메모리로 보고 MaxRAMPercentage=70 → 힙 ~1075Mi 를 잡는다.
+              # 여기에 metaspace·스레드·direct buffer 가 붙어 RSS 가 1.4Gi 까지 가므로,
+              # 768Mi 로 두면 스케줄러가 노드에 과배치해 kubelet eviction 이 난다.
+              memory: 1536Mi
+            limits:
+              memory: 1536Mi
+          # path 를 / 로 두면 안 된다. 앱의 루트는 500 을 반환하고(에러 핸들러),
+          # /api/** 는 Spring Security 가 401 을 준다. kubelet 은 200~399 만 성공으로
+          # 보므로 둘 다 probe 실패 → 무한 재시작이 된다.
+          # actuator 는 context-path 가 아니라 개별 매핑이라 /api 밖에 그대로 있다.
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 36
+          # readiness 만 엔드포인트에서 뺄지를 결정한다. 여기서 DB 를 봐도 되지만,
+          # liveness 에서 DB 를 보면 DB 장애가 파드 전멸로 번지므로 분리해 둔다.
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: default
+spec:
+  selector:
+    app: backend
+  ports:
+    - name: http
+      port: 8055
+      targetPort: http
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend
+  namespace: default
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: backend

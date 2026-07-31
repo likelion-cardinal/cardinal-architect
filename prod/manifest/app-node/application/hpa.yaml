@@ -1,0 +1,51 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # requests(300m) 대비 비율이다. JVM 은 워밍업 때 CPU 를 튀기므로 여유를 둔다.
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      # 노드 증설에 2~3분 걸린다. 늘릴 땐 주저하지 않는다.
+      stabilizationWindowSeconds: 30
+    scaleDown:
+      # 축제 트래픽처럼 파도가 치는 패턴에서 줄였다 늘렸다 하지 않도록 길게 잡는다.
+      stabilizationWindowSeconds: 300
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: frontend
+  namespace: default
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: frontend
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
