@@ -1,0 +1,41 @@
+Redis 설치 (단일 인스턴스, 영속성 없음)
+======================================================================
+(이 디렉토리에서 실행)
+
+// 네임스페이스는 mysql 에서 이미 만들었다. 없으면 먼저 생성
+1. kubectl get ns database || kubectl create namespace database
+
+// 배포
+2. kubectl apply -f .
+
+// 기동 확인
+3. kubectl -n database rollout status deployment/redis
+
+// 접속 확인
+4. kubectl -n database exec -it deploy/redis -- redis-cli ping
+   → PONG
+
+
+애플리케이션에서 접속
+----------------------------------------------------------------------
+- 호스트: redis.database.svc.cluster.local  (포트 6379)
+- 비밀번호 없음(클러스터 내부 전용). 외부로 여는 Service/Ingress 를 만들지 말 것.
+- app-node/application/configmap.yaml 의 REDIS_HOST 가 이 값을 가리킨다.
+
+
+영속성 없음 — 의도된 선택
+----------------------------------------------------------------------
+- staging 의 docker-compose 도 redis 에 볼륨이 없었다. 그대로 옮겼다.
+- 파드가 재시작되면 캐시가 비워진다. 세션/리프레시 토큰을 redis 에 두고 있다면
+  그 순간 전원 재로그인이다. 그게 곤란하면 mysql 처럼 hostPath(/mnt/data/redis)를
+  붙이고 --appendonly yes 로 바꿀 것.
+- maxmemory 256mb / allkeys-lru: 메모리가 차면 오래된 키부터 버린다. 버려지면
+  안 되는 데이터(리프레시 토큰 등)가 있다면 noeviction 으로 바꾸고 대신
+  메모리 한도를 넉넉히 잡아야 한다.
+
+
+주의사항
+----------------------------------------------------------------------
+- replicas 를 2 이상으로 올리면 안 된다. 복제 설정이 없어 캐시가 갈라진다.
+- System 노드 1대에 몰려 있으므로 이 노드가 죽으면 mysql·rabbitmq 와 함께 내려간다.
+  (HA 는 이번 구성의 목표가 아니다 — 노드 1대 예산 구성)

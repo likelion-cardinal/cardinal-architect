@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: database
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      # App 노드가 아니라 System 노드에 둔다. App 노드는 CA 가 언제든 줄일 수 있어
+      # 캐시/세션이 통째로 날아간다.
+      nodeSelector:
+        cardinal.io/role: system
+      containers:
+        - name: redis
+          image: redis:7
+          args:
+            - --save
+            - ""
+            - --appendonly
+            - "no"
+            - --maxmemory
+            - 256mb
+            - --maxmemory-policy
+            - allkeys-lru
+          ports:
+            - name: redis
+              containerPort: 6379
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              # maxmemory(256mb) + 단편화 여유. 이 값을 maxmemory 에 붙여 두면 OOMKill 이 난다.
+              memory: 384Mi
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: database
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
