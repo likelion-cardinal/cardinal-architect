@@ -37,7 +37,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: backend
-          image: ghcr.io/likelion-cardinal/cardinal-be-staging:staging  # 추후 prod로 변경
+          image: ghcr.io/likelion-cardinal/cardinal-be-prod:1.0.0 # 추후 prod로 변경
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
@@ -73,7 +73,6 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3
-
 ---
 apiVersion: v1
 kind: Service
@@ -87,7 +86,6 @@ spec:
     - name: http
       port: 8055
       targetPort: http
-
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
