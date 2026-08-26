@@ -34,7 +34,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: frontend
-          image: ghcr.io/likelion-cardinal/cardinal-fe-staging:staging   
+          image: ghcr.io/likelion-cardinal/cardinal-fe-prod:1.0.0
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
@@ -67,7 +67,6 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3
-
 ---
 apiVersion: v1
 kind: Service
@@ -81,7 +80,6 @@ spec:
     - name: http
       port: 80
       targetPort: http
-
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
