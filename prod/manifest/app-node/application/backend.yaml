@@ -38,7 +38,7 @@ spec:
       containers:
         - name: backend
           image: ghcr.io/likelion-cardinal/cardinal-be-staging:staging  # 추후 prod로 변경
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
                 name: backend-config
