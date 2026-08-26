@@ -34,8 +34,8 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: frontend
-          image: ghcr.io/likelion-cardinal/cardinal-fe-staging:staging    # 추후 prod로 변경
-          imagePullPolicy: Always
+          image: ghcr.io/likelion-cardinal/cardinal-fe-staging:staging   
+          imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
                 name: frontend-config
