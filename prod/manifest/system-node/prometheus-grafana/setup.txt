@@ -27,6 +27,26 @@ prometheus.yaml 은 고칠 필요가 없다. 위 1번을 건너뛰면 node-expor
 네임스페이스 없음으로 실패한다.
 
 
+대시보드
+----------------------------------------------------------------------
+dashboard-nodes.yaml 이 "Cardinal — 노드 리소스"(uid: cardinal-nodes)를
+프로비저닝한다. 3번 apply 에 같이 포함되므로 별도 임포트가 필요 없다.
+  접속 후 Dashboards → Cardinal 폴더
+
+  섹션   클러스터 합계 / CPU / 메모리 / 디스크 / 네트워크
+  변수   상단 "노드" 드롭다운으로 전체·개별 전환 (기본 All)
+
+allowUiUpdates: false 라 UI 에서 고쳐도 30초 뒤 파일 기준으로 되돌아간다.
+바꾸려면 UI 에서 JSON 을 export 해 ConfigMap 에 반영하고 apply 할 것.
+
+기성 대시보드가 더 필요하면 Grafana UI 에서 Import → 1860(Node Exporter Full).
+단 그건 파일로 관리되지 않아 클러스터를 다시 만들면 사라진다.
+
+값이 kubectl top 과 다른 게 정상이다:
+  kubectl top    컨테이너 사용량 합 / 분모는 allocatable
+  node-exporter  호스트 전체(커널·containerd·kubelet 포함) / 분모는 물리 총량
+
+
 ingress.yaml 주의
 ----------------------------------------------------------------------
 - ingress-nginx 가 먼저 떠 있어야 한다 (manifest/app-node/ingress-nginx/)

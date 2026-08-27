@@ -9,6 +9,9 @@ data:
     datasources:
       - name: Prometheus
         type: prometheus
+        # uid 를 고정해야 대시보드 JSON 이 데이터소스를 확실히 찾는다.
+        # 생략하면 Grafana 가 임의 uid 를 만들어 프로비저닝된 대시보드가 깨진다.
+        uid: prometheus
         access: proxy
         url: http://prometheus.monitoring.svc:9090
         isDefault: true
@@ -90,12 +93,24 @@ spec:
           volumeMounts:
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-providers
+              mountPath: /etc/grafana/provisioning/dashboards
+            # data(hostPath) 위에 겹쳐 마운트한다. 이 경로만 ConfigMap 이 이기고
+            # 나머지 /var/lib/grafana 는 그대로 EBS 에 남는다.
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
             - name: data
               mountPath: /var/lib/grafana
       volumes:
         - name: datasources
           configMap:
             name: grafana-datasources
+        - name: dashboard-providers
+          configMap:
+            name: grafana-dashboard-providers
+        - name: dashboards
+          configMap:
+            name: grafana-dashboard-nodes
         - name: data
           hostPath:
             path: /mnt/data/grafana
