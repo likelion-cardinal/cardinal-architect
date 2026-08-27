@@ -22,6 +22,11 @@ data:
   RABBITMQ_PORT: "5672"
   RABBITMQ_USERNAME: "cardinal"
 
+  # TLS 는 ALB 에서 끝나고 노드로는 평문 HTTP 가 온다. 이 값이 없으면 Spring 이
+  # {baseUrl} 을 http:// 로 조립해서 카카오에 넘기고, 콘솔에 등록한 https:// 와
+  # 달라 KOE006 이 난다. ingress-nginx 의 use-forwarded-headers=true 와 한 세트다.
+  SERVER_FORWARD_HEADERS_STRATEGY: "FRAMEWORK"
+
   # OAuth2 (카카오 로그인 성공 후 프론트로 돌려보낼 주소)
   # staging 은 https://cardinal-staging.duckdns.org/auth/callback 이었다.
   OAUTH2_REDIRECT_URI: "https://2026cardinal.com/auth/callback"
