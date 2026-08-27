@@ -22,6 +22,10 @@ data:
   RABBITMQ_PORT: "5672"
   RABBITMQ_USERNAME: "cardinal"
 
+  # 임시 디버그. Spring Security 는 OAuth2 로그인 실패를 기본적으로 로그에
+  # 남기지 않고 /login?error 로 조용히 리다이렉트만 한다. 원인 확인이 끝나면 지울 것.
+  LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY: "DEBUG"
+
   # TLS 는 ALB 에서 끝나고 노드로는 평문 HTTP 가 온다. 이 값이 없으면 Spring 이
   # {baseUrl} 을 http:// 로 조립해서 카카오에 넘기고, 콘솔에 등록한 https:// 와
   # 달라 KOE006 이 난다. ingress-nginx 의 use-forwarded-headers=true 와 한 세트다.

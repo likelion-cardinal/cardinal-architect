@@ -6,6 +6,14 @@ metadata:
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
     nginx.ingress.kubernetes.io/proxy-body-size: "20m"
+    # OAuth2 인가요청(state, PKCE code_verifier)이 백엔드의 HTTP 세션에 저장되는데
+    # 백엔드가 2개라 /oauth2/authorization 과 /login/oauth2/code 가 서로 다른
+    # 파드로 가면 세션을 못 찾고 /login?error 로 튕긴다. staging 은 컨테이너가
+    # 1개여서 안 드러났던 문제다. 같은 브라우저를 같은 파드로 고정한다.
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/affinity-mode: "persistent"
+    nginx.ingress.kubernetes.io/session-cookie-name: "cardinal-affinity"
+    nginx.ingress.kubernetes.io/session-cookie-max-age: "3600"
 spec:
   ingressClassName: nginx
   rules:
