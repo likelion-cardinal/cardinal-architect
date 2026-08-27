@@ -14,6 +14,10 @@ metadata:
     nginx.ingress.kubernetes.io/affinity-mode: "persistent"
     nginx.ingress.kubernetes.io/session-cookie-name: "cardinal-affinity"
     nginx.ingress.kubernetes.io/session-cookie-max-age: "3600"
+    # 이게 없으면 nginx 가 매칭된 path 규칙(/oauth2)을 쿠키 Path 로 써버린다.
+    # 그러면 콜백(/login/oauth2/code/kakao)에서 브라우저가 쿠키를 안 보내
+    # 어피니티가 무효가 되고, 켠 의미가 사라진다.
+    nginx.ingress.kubernetes.io/session-cookie-path: "/"
 spec:
   ingressClassName: nginx
   rules:
