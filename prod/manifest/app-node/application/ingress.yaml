@@ -18,6 +18,23 @@ spec:
                 name: backend
                 port:
                   number: 8055
+          # 카카오 로그인. Spring Security 의 기본 엔드포인트라 /api 아래가 아니라
+          # 루트에 있다. staging nginx 도 location /oauth2/ 와 /login/oauth2/ 를
+          # 따로 백엔드로 보냈다. 빼면 프론트로 가서 로그인이 통째로 깨진다.
+          - path: /oauth2
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8055
+          - path: /login/oauth2
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8055
           - path: /
             pathType: Prefix
             backend:
