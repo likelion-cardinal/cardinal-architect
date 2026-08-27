@@ -6,6 +6,12 @@ metadata:
 data:
   datasource.yaml: |
     apiVersion: 1
+    # grafana.db 에 이미 다른 uid 로 저장된 같은 이름의 데이터소스가 있으면
+    # "Datasource provisioning error: data source not found" 로 기동이 통째로 실패한다.
+    # 먼저 지우고 새로 만들게 한다(매 기동마다 지웠다 다시 만들므로 멱등).
+    deleteDatasources:
+      - name: Prometheus
+        orgId: 1
     datasources:
       - name: Prometheus
         type: prometheus
@@ -95,10 +101,10 @@ spec:
               mountPath: /etc/grafana/provisioning/datasources
             - name: dashboard-providers
               mountPath: /etc/grafana/provisioning/dashboards
-            # data(hostPath) 위에 겹쳐 마운트한다. 이 경로만 ConfigMap 이 이기고
-            # 나머지 /var/lib/grafana 는 그대로 EBS 에 남는다.
+            # /var/lib/grafana 는 hostPath 라, 그 하위에 ConfigMap 을 겹쳐 마운트하면
+            # 마운트 순서 문제로 기동이 깨진다. 겹치지 않는 경로에 둔다.
             - name: dashboards
-              mountPath: /var/lib/grafana/dashboards
+              mountPath: /etc/grafana/dashboards
             - name: data
               mountPath: /var/lib/grafana
       volumes:
