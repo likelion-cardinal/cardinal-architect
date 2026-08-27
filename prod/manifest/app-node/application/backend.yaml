@@ -37,7 +37,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: backend
-          image: ghcr.io/likelion-cardinal/cardinal-be-prod:1.0.0 # 추후 prod로 변경
+          image: ghcr.io/likelion-cardinal/cardinal-be-prod:1.0.1 # 추후 prod로 변경
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
