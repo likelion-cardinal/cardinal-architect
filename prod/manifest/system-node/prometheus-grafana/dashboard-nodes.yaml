@@ -31,7 +31,7 @@ data:
     {
       "uid": "cardinal-nodes",
       "title": "Cardinal — 노드 리소스",
-      "description": "CPU·메모리·디스크·네트워크를 클러스터 합계와 노드별로 본다. node-exporter 기준(호스트 전체)이라 kubectl top(컨테이너 합계)과는 값이 다르다.",
+      "description": "역할(All/control-plane/system/application)로 토글하고 노드별·파드별로 본다. node-exporter 는 호스트 전체 기준이라 kubectl top(컨테이너 합계)과 값이 다르다.",
       "tags": [
         "cardinal",
         "nodes"
@@ -48,21 +48,22 @@ data:
       "templating": {
         "list": [
           {
-            "name": "node",
-            "label": "노드",
+            "name": "role",
+            "label": "역할",
             "type": "query",
             "datasource": {
               "type": "prometheus",
               "uid": "prometheus"
             },
             "query": {
-              "query": "label_values(node_uname_info, node)",
-              "refId": "node"
+              "query": "label_values(up{job=\"kubernetes-nodes\"}, cardinal_io_role)",
+              "refId": "role"
             },
             "refresh": 2,
             "multi": true,
             "includeAll": true,
             "allValue": ".*",
+            "sort": 1,
             "current": {
               "selected": true,
               "text": [
@@ -71,15 +72,41 @@ data:
               "value": [
                 "$__all"
               ]
+            }
+          },
+          {
+            "name": "node",
+            "label": "노드",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
             },
-            "sort": 1
+            "query": {
+              "query": "label_values(up{job=\"kubernetes-nodes\",cardinal_io_role=~\"$role\"}, kubernetes_io_hostname)",
+              "refId": "node"
+            },
+            "refresh": 2,
+            "multi": true,
+            "includeAll": true,
+            "allValue": ".*",
+            "sort": 1,
+            "current": {
+              "selected": true,
+              "text": [
+                "All"
+              ],
+              "value": [
+                "$__all"
+              ]
+            }
           }
         ]
       },
       "panels": [
         {
           "type": "row",
-          "title": "클러스터 합계",
+          "title": "클러스터 요약",
           "gridPos": {
             "h": 1,
             "w": 24,
@@ -92,7 +119,7 @@ data:
         {
           "type": "stat",
           "title": "노드 수",
-          "description": "node-exporter 가 UP 인 노드 수. 실제 노드 수와 다르면 DaemonSet 이 일부 노드에 안 떠 있는 것",
+          "description": "node-exporter 가 UP 인 노드 수",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -136,7 +163,8 @@ data:
           "options": {
             "colorMode": "value",
             "graphMode": "area",
-            "textMode": "auto",
+            "justifyMode": "auto",
+            "textMode": "value_and_name",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
@@ -193,7 +221,8 @@ data:
           "options": {
             "colorMode": "value",
             "graphMode": "area",
-            "textMode": "auto",
+            "justifyMode": "auto",
+            "textMode": "value_and_name",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
@@ -250,7 +279,8 @@ data:
           "options": {
             "colorMode": "value",
             "graphMode": "area",
-            "textMode": "auto",
+            "justifyMode": "auto",
+            "textMode": "value_and_name",
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
@@ -262,16 +292,74 @@ data:
         },
         {
           "type": "stat",
-          "title": "CPU 사용률 (전체)",
-          "description": "전 노드 평균. 호스트 전체 기준이라 kubectl top(컨테이너 합계)보다 높게 나온다",
+          "title": "총 디스크",
+          "description": "",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
           "gridPos": {
             "h": 4,
-            "w": 5,
+            "w": 3,
             "x": 9,
+            "y": 1
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(node_filesystem_size_bytes{job=\"node-exporter\",fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs|devtmpfs\",mountpoint=~\"/|/mnt/data\"})",
+              "legendFormat": "",
+              "range": false,
+              "instant": true,
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "type": "stat",
+          "title": "CPU 사용률",
+          "description": "선택한 시간 범위의 평균(기본 1시간)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 3,
+            "x": 12,
             "y": 1
           },
           "targets": [
@@ -283,8 +371,8 @@ data:
               "editorMode": "code",
               "expr": "100 - (avg(rate(node_cpu_seconds_total{job=\"node-exporter\",mode=\"idle\"}[5m])) * 100)",
               "legendFormat": "",
-              "range": false,
-              "instant": true,
+              "range": true,
+              "instant": false,
               "refId": "A"
             }
           ],
@@ -315,10 +403,11 @@ data:
           "options": {
             "colorMode": "value",
             "graphMode": "area",
-            "textMode": "auto",
+            "justifyMode": "auto",
+            "textMode": "value_and_name",
             "reduceOptions": {
               "calcs": [
-                "lastNotNull"
+                "mean"
               ],
               "fields": "",
               "values": false
@@ -327,16 +416,16 @@ data:
         },
         {
           "type": "stat",
-          "title": "메모리 사용률 (전체)",
-          "description": "",
+          "title": "메모리 사용률",
+          "description": "선택한 시간 범위의 평균(기본 1시간)",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
           "gridPos": {
             "h": 4,
-            "w": 5,
-            "x": 14,
+            "w": 3,
+            "x": 15,
             "y": 1
           },
           "targets": [
@@ -348,8 +437,8 @@ data:
               "editorMode": "code",
               "expr": "100 * (1 - sum(node_memory_MemAvailable_bytes{job=\"node-exporter\"}) / sum(node_memory_MemTotal_bytes{job=\"node-exporter\"}))",
               "legendFormat": "",
-              "range": false,
-              "instant": true,
+              "range": true,
+              "instant": false,
               "refId": "A"
             }
           ],
@@ -380,10 +469,11 @@ data:
           "options": {
             "colorMode": "value",
             "graphMode": "area",
-            "textMode": "auto",
+            "justifyMode": "auto",
+            "textMode": "value_and_name",
             "reduceOptions": {
               "calcs": [
-                "lastNotNull"
+                "mean"
               ],
               "fields": "",
               "values": false
@@ -392,16 +482,16 @@ data:
         },
         {
           "type": "stat",
-          "title": "루트 디스크 최대 사용률",
-          "description": "노드 중 가장 꽉 찬 루트 파일시스템. 100% 가 되면 nginx 가 큰 파일을 중계하지 못하는 등 조용히 깨진다",
+          "title": "디스크 사용률 (최대)",
+          "description": "가장 꽉 찬 파일시스템. 100% 가 되면 nginx 가 큰 파일을 중계 못 하는 식으로 조용히 깨진다",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
           "gridPos": {
             "h": 4,
-            "w": 5,
-            "x": 19,
+            "w": 3,
+            "x": 18,
             "y": 1
           },
           "targets": [
@@ -411,10 +501,10 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "max(100 * (1 - node_filesystem_avail_bytes{job=\"node-exporter\",mountpoint=\"/\"} / node_filesystem_size_bytes{job=\"node-exporter\",mountpoint=\"/\"}))",
+              "expr": "max(100 * (1 - node_filesystem_avail_bytes{job=\"node-exporter\",fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs|devtmpfs\"} / node_filesystem_size_bytes{job=\"node-exporter\",fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs|devtmpfs\"}))",
               "legendFormat": "",
-              "range": false,
-              "instant": true,
+              "range": true,
+              "instant": false,
               "refId": "A"
             }
           ],
@@ -445,10 +535,81 @@ data:
           "options": {
             "colorMode": "value",
             "graphMode": "area",
-            "textMode": "auto",
+            "justifyMode": "auto",
+            "textMode": "value_and_name",
             "reduceOptions": {
               "calcs": [
-                "lastNotNull"
+                "mean"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "type": "stat",
+          "title": "네트워크 RX / TX",
+          "description": "선택한 시간 범위의 평균(기본 1시간)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 3,
+            "x": 21,
+            "y": 1
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(node_network_receive_bytes_total{job=\"node-exporter\",device!~\"lo|veth.*|cali.*|tunl.*|docker.*|cni.*|flannel.*|vxlan.*|nodelocaldns.*\"}[5m])) * 8",
+              "legendFormat": "RX",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(node_network_transmit_bytes_total{job=\"node-exporter\",device!~\"lo|veth.*|cali.*|tunl.*|docker.*|cni.*|flannel.*|vxlan.*|nodelocaldns.*\"}[5m])) * 8",
+              "legendFormat": "TX",
+              "range": true,
+              "instant": false,
+              "refId": "B"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bps",
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "none",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "mean"
               ],
               "fields": "",
               "values": false
@@ -457,7 +618,7 @@ data:
         },
         {
           "type": "row",
-          "title": "CPU",
+          "title": "노드별 현황  ·  CPU 는 현재값, 나머지는 시간 범위 평균",
           "gridPos": {
             "h": 1,
             "w": 24,
@@ -468,18 +629,582 @@ data:
           "panels": []
         },
         {
-          "type": "timeseries",
-          "title": "노드별 CPU 사용률",
+          "type": "stat",
+          "title": "노드별 CPU 사용률 (현재)",
+          "description": "노드마다 타일이 하나씩 생긴다",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 24,
+            "x": 0,
+            "y": 6
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "100 - (avg by (node) (rate(node_cpu_seconds_total{job=\"node-exporter\",mode=\"idle\",node=~\"$node\"}[5m])) * 100)",
+              "legendFormat": "{{node}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 70
+                  },
+                  {
+                    "color": "red",
+                    "value": 85
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "type": "stat",
+          "title": "노드별 메모리 사용률 (평균)",
           "description": "",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
           "gridPos": {
-            "h": 8,
+            "h": 4,
+            "w": 8,
+            "x": 0,
+            "y": 10
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "100 * (1 - (node_memory_MemAvailable_bytes{job=\"node-exporter\",node=~\"$node\"} / node_memory_MemTotal_bytes{job=\"node-exporter\",node=~\"$node\"}))",
+              "legendFormat": "{{node}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 70
+                  },
+                  {
+                    "color": "red",
+                    "value": 85
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "mean"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "type": "stat",
+          "title": "노드별 루트 디스크 사용률 (평균)",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 8,
+            "y": 10
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "100 * (1 - node_filesystem_avail_bytes{job=\"node-exporter\",node=~\"$node\",mountpoint=\"/\"} / node_filesystem_size_bytes{job=\"node-exporter\",node=~\"$node\",mountpoint=\"/\"})",
+              "legendFormat": "{{node}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 75
+                  },
+                  {
+                    "color": "red",
+                    "value": 90
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "mean"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "type": "stat",
+          "title": "노드별 네트워크 RX+TX (평균)",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 16,
+            "y": 10
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (node) (rate(node_network_receive_bytes_total{job=\"node-exporter\",node=~\"$node\",device!~\"lo|veth.*|cali.*|tunl.*|docker.*|cni.*|flannel.*|vxlan.*|nodelocaldns.*\"}[5m]) + rate(node_network_transmit_bytes_total{job=\"node-exporter\",node=~\"$node\",device!~\"lo|veth.*|cali.*|tunl.*|docker.*|cni.*|flannel.*|vxlan.*|nodelocaldns.*\"}[5m])) * 8",
+              "legendFormat": "{{node}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bps",
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "none",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "mean"
+              ],
+              "fields": "",
+              "values": false
+            }
+          }
+        },
+        {
+          "type": "row",
+          "title": "총량",
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 14
+          },
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "type": "timeseries",
+          "title": "클러스터 CPU 사용량 (코어)",
+          "description": "절대량. 사용률(%)이 아니라 코어 개수 기준",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
             "w": 12,
             "x": 0,
-            "y": 6
+            "y": 15
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(node_cpu_seconds_total{job=\"node-exporter\",mode!=\"idle\",node=~\"$node\"}[5m]))",
+              "legendFormat": "사용 중",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "count(count by (node,cpu) (node_cpu_seconds_total{job=\"node-exporter\",mode=\"idle\",node=~\"$node\"}))",
+              "legendFormat": "총 코어",
+              "range": true,
+              "instant": false,
+              "refId": "B"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 8,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "클러스터 메모리 사용량",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 15
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(node_memory_MemTotal_bytes{job=\"node-exporter\",node=~\"$node\"}) - sum(node_memory_MemAvailable_bytes{job=\"node-exporter\",node=~\"$node\"})",
+              "legendFormat": "사용 중",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(node_memory_MemTotal_bytes{job=\"node-exporter\",node=~\"$node\"})",
+              "legendFormat": "총량",
+              "range": true,
+              "instant": false,
+              "refId": "B"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "min": 0,
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 8,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "클러스터 디스크 사용량",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 22
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(node_filesystem_size_bytes{job=\"node-exporter\",node=~\"$node\",fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs|devtmpfs\",mountpoint=~\"/|/mnt/data\"}) - sum(node_filesystem_avail_bytes{job=\"node-exporter\",node=~\"$node\",fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs|devtmpfs\",mountpoint=~\"/|/mnt/data\"})",
+              "legendFormat": "사용 중",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(node_filesystem_size_bytes{job=\"node-exporter\",node=~\"$node\",fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs|devtmpfs\",mountpoint=~\"/|/mnt/data\"})",
+              "legendFormat": "총량",
+              "range": true,
+              "instant": false,
+              "refId": "B"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "min": 0,
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 8,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "클러스터 네트워크 합계",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 22
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(node_network_receive_bytes_total{job=\"node-exporter\",node=~\"$node\",device!~\"lo|veth.*|cali.*|tunl.*|docker.*|cni.*|flannel.*|vxlan.*|nodelocaldns.*\"}[5m])) * 8",
+              "legendFormat": "RX",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum(rate(node_network_transmit_bytes_total{job=\"node-exporter\",node=~\"$node\",device!~\"lo|veth.*|cali.*|tunl.*|docker.*|cni.*|flannel.*|vxlan.*|nodelocaldns.*\"}[5m])) * 8",
+              "legendFormat": "TX",
+              "range": true,
+              "instant": false,
+              "refId": "B"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bps",
+              "min": 0,
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 8,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "title": "노드별 추이",
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 29
+          },
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "type": "timeseries",
+          "title": "CPU 사용률",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 30
           },
           "targets": [
             {
@@ -504,7 +1229,6 @@ data:
                 "lineWidth": 1,
                 "fillOpacity": 8,
                 "showPoints": "never",
-                "axisLabel": "",
                 "spanNulls": true
               },
               "max": 100
@@ -517,6 +1241,7 @@ data:
               "placement": "right",
               "showLegend": true,
               "calcs": [
+                "mean",
                 "lastNotNull",
                 "max"
               ]
@@ -529,206 +1254,17 @@ data:
         },
         {
           "type": "timeseries",
-          "title": "노드별 CPU 모드 구성",
-          "description": "iowait 가 높으면 디스크 병목, steal 이 높으면 호스트 경합",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 12,
-            "y": 6
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "avg by (node,mode) (rate(node_cpu_seconds_total{job=\"node-exporter\",mode!=\"idle\",node=~\"$node\"}[5m])) * 100",
-              "legendFormat": "{{node}} {{mode}}",
-              "range": true,
-              "instant": false,
-              "refId": "A"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "percent",
-              "min": 0,
-              "custom": {
-                "drawStyle": "line",
-                "lineWidth": 1,
-                "fillOpacity": 8,
-                "showPoints": "never",
-                "axisLabel": "",
-                "spanNulls": true
-              }
-            },
-            "overrides": []
-          },
-          "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "right",
-              "showLegend": true,
-              "calcs": [
-                "lastNotNull",
-                "max"
-              ]
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          }
-        },
-        {
-          "type": "timeseries",
-          "title": "Load average (1m)",
-          "description": "코어 수보다 지속적으로 크면 과부하",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "gridPos": {
-            "h": 6,
-            "w": 12,
-            "x": 0,
-            "y": 14
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "node_load1{job=\"node-exporter\",node=~\"$node\"}",
-              "legendFormat": "{{node}}",
-              "range": true,
-              "instant": false,
-              "refId": "A"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "min": 0,
-              "custom": {
-                "drawStyle": "line",
-                "lineWidth": 1,
-                "fillOpacity": 8,
-                "showPoints": "never",
-                "axisLabel": "",
-                "spanNulls": true
-              }
-            },
-            "overrides": []
-          },
-          "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "right",
-              "showLegend": true,
-              "calcs": [
-                "lastNotNull",
-                "max"
-              ]
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          }
-        },
-        {
-          "type": "timeseries",
-          "title": "노드별 실행 대기 프로세스",
+          "title": "메모리 사용률",
           "description": "",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
           "gridPos": {
-            "h": 6,
+            "h": 7,
             "w": 12,
             "x": 12,
-            "y": 14
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "node_procs_running{job=\"node-exporter\",node=~\"$node\"}",
-              "legendFormat": "{{node}} running",
-              "range": true,
-              "instant": false,
-              "refId": "A"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "min": 0,
-              "custom": {
-                "drawStyle": "line",
-                "lineWidth": 1,
-                "fillOpacity": 8,
-                "showPoints": "never",
-                "axisLabel": "",
-                "spanNulls": true
-              }
-            },
-            "overrides": []
-          },
-          "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "right",
-              "showLegend": true,
-              "calcs": [
-                "lastNotNull",
-                "max"
-              ]
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          }
-        },
-        {
-          "type": "row",
-          "title": "메모리",
-          "gridPos": {
-            "h": 1,
-            "w": 24,
-            "x": 0,
-            "y": 20
-          },
-          "collapsed": false,
-          "panels": []
-        },
-        {
-          "type": "timeseries",
-          "title": "노드별 메모리 사용률",
-          "description": "",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 0,
-            "y": 21
+            "y": 30
           },
           "targets": [
             {
@@ -753,7 +1289,6 @@ data:
                 "lineWidth": 1,
                 "fillOpacity": 8,
                 "showPoints": "never",
-                "axisLabel": "",
                 "spanNulls": true
               },
               "max": 100
@@ -766,6 +1301,7 @@ data:
               "placement": "right",
               "showLegend": true,
               "calcs": [
+                "mean",
                 "lastNotNull",
                 "max"
               ]
@@ -778,17 +1314,17 @@ data:
         },
         {
           "type": "timeseries",
-          "title": "노드별 메모리 사용량",
-          "description": "MemAvailable 기준이라 page cache 는 사용량에서 빠진다",
+          "title": "Load average (1m)",
+          "description": "코어 수보다 지속적으로 크면 과부하",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
           },
           "gridPos": {
-            "h": 8,
+            "h": 6,
             "w": 12,
-            "x": 12,
-            "y": 21
+            "x": 0,
+            "y": 37
           },
           "targets": [
             {
@@ -797,35 +1333,22 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "node_memory_MemTotal_bytes{job=\"node-exporter\",node=~\"$node\"} - node_memory_MemAvailable_bytes{job=\"node-exporter\",node=~\"$node\"}",
-              "legendFormat": "{{node}} 사용",
+              "expr": "node_load1{job=\"node-exporter\",node=~\"$node\"}",
+              "legendFormat": "{{node}}",
               "range": true,
               "instant": false,
               "refId": "A"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "prometheus"
-              },
-              "editorMode": "code",
-              "expr": "node_memory_MemTotal_bytes{job=\"node-exporter\",node=~\"$node\"}",
-              "legendFormat": "{{node}} 총량",
-              "range": true,
-              "instant": false,
-              "refId": "B"
             }
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "bytes",
+              "unit": "short",
               "min": 0,
               "custom": {
                 "drawStyle": "line",
                 "lineWidth": 1,
                 "fillOpacity": 8,
                 "showPoints": "never",
-                "axisLabel": "",
                 "spanNulls": true
               }
             },
@@ -837,6 +1360,322 @@ data:
               "placement": "right",
               "showLegend": true,
               "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "CPU 모드 구성",
+          "description": "iowait 높으면 디스크 병목, steal 높으면 호스트 경합",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 12,
+            "y": 37
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "avg by (node,mode) (rate(node_cpu_seconds_total{job=\"node-exporter\",mode!=\"idle\",node=~\"$node\"}[5m])) * 100",
+              "legendFormat": "{{node}} {{mode}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 8,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "type": "row",
+          "title": "파드별  ·  cAdvisor 기준",
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 43
+          },
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "type": "timeseries",
+          "title": "파드별 CPU 사용량 (상위 15)",
+          "description": "단위는 코어. 0.5 면 반 코어를 쓰는 중",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 0,
+            "y": 44
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "topk(15, sum by (namespace,pod) (rate(container_cpu_usage_seconds_total{container!=\"\",container!=\"POD\",kubernetes_io_hostname=~\"$node\",cardinal_io_role=~\"$role\"}[5m])))",
+              "legendFormat": "{{namespace}}/{{pod}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 8,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "파드별 메모리 사용량 (상위 15)",
+          "description": "working set 기준. OOMKill 판단에 쓰이는 값과 같다",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 12,
+            "y": 44
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "topk(15, sum by (namespace,pod) (container_memory_working_set_bytes{container!=\"\",container!=\"POD\",kubernetes_io_hostname=~\"$node\",cardinal_io_role=~\"$role\"}))",
+              "legendFormat": "{{namespace}}/{{pod}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "min": 0,
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 8,
+                "showPoints": "never",
+                "spanNulls": true
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "네임스페이스별 CPU",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 53
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (namespace) (rate(container_cpu_usage_seconds_total{container!=\"\",container!=\"POD\",kubernetes_io_hostname=~\"$node\",cardinal_io_role=~\"$role\"}[5m]))",
+              "legendFormat": "{{namespace}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 18,
+                "showPoints": "never",
+                "spanNulls": true,
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "네임스페이스별 메모리",
+          "description": "",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 53
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (namespace) (container_memory_working_set_bytes{container!=\"\",container!=\"POD\",kubernetes_io_hostname=~\"$node\",cardinal_io_role=~\"$role\"})",
+              "legendFormat": "{{namespace}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "min": 0,
+              "custom": {
+                "drawStyle": "line",
+                "lineWidth": 1,
+                "fillOpacity": 18,
+                "showPoints": "never",
+                "spanNulls": true,
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "mean",
                 "lastNotNull",
                 "max"
               ]
@@ -854,7 +1693,7 @@ data:
             "h": 1,
             "w": 24,
             "x": 0,
-            "y": 29
+            "y": 60
           },
           "collapsed": false,
           "panels": []
@@ -871,7 +1710,7 @@ data:
             "h": 8,
             "w": 12,
             "x": 0,
-            "y": 30
+            "y": 61
           },
           "targets": [
             {
@@ -880,7 +1719,7 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "100 * (1 - node_filesystem_avail_bytes{job=\"node-exporter\",node=~\"$node\",fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs\"} / node_filesystem_size_bytes{job=\"node-exporter\",node=~\"$node\",fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs\"})",
+              "expr": "100 * (1 - node_filesystem_avail_bytes{job=\"node-exporter\",node=~\"$node\",fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs|devtmpfs\"} / node_filesystem_size_bytes{job=\"node-exporter\",node=~\"$node\",fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs|devtmpfs\"})",
               "legendFormat": "{{node}} {{mountpoint}}",
               "range": true,
               "instant": false,
@@ -896,7 +1735,6 @@ data:
                 "lineWidth": 1,
                 "fillOpacity": 8,
                 "showPoints": "never",
-                "axisLabel": "",
                 "spanNulls": true
               },
               "max": 100
@@ -909,6 +1747,7 @@ data:
               "placement": "right",
               "showLegend": true,
               "calcs": [
+                "mean",
                 "lastNotNull",
                 "max"
               ]
@@ -931,7 +1770,7 @@ data:
             "h": 8,
             "w": 12,
             "x": 12,
-            "y": 30
+            "y": 61
           },
           "targets": [
             {
@@ -940,7 +1779,7 @@ data:
                 "uid": "prometheus"
               },
               "editorMode": "code",
-              "expr": "node_filesystem_avail_bytes{job=\"node-exporter\",node=~\"$node\",fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs\"}",
+              "expr": "node_filesystem_avail_bytes{job=\"node-exporter\",node=~\"$node\",fstype!~\"tmpfs|overlay|squashfs|ramfs|nsfs|devtmpfs\"}",
               "legendFormat": "{{node}} {{mountpoint}}",
               "range": true,
               "instant": false,
@@ -956,7 +1795,6 @@ data:
                 "lineWidth": 1,
                 "fillOpacity": 8,
                 "showPoints": "never",
-                "axisLabel": "",
                 "spanNulls": true
               }
             },
@@ -968,6 +1806,7 @@ data:
               "placement": "right",
               "showLegend": true,
               "calcs": [
+                "mean",
                 "lastNotNull",
                 "max"
               ]
@@ -980,7 +1819,7 @@ data:
         },
         {
           "type": "timeseries",
-          "title": "디스크 읽기/쓰기",
+          "title": "디스크 읽기 / 쓰기",
           "description": "",
           "datasource": {
             "type": "prometheus",
@@ -990,7 +1829,7 @@ data:
             "h": 6,
             "w": 12,
             "x": 0,
-            "y": 38
+            "y": 69
           },
           "targets": [
             {
@@ -1027,7 +1866,6 @@ data:
                 "lineWidth": 1,
                 "fillOpacity": 8,
                 "showPoints": "never",
-                "axisLabel": "",
                 "spanNulls": true
               }
             },
@@ -1039,6 +1877,7 @@ data:
               "placement": "right",
               "showLegend": true,
               "calcs": [
+                "mean",
                 "lastNotNull",
                 "max"
               ]
@@ -1052,7 +1891,7 @@ data:
         {
           "type": "timeseries",
           "title": "디스크 I/O 대기 비율",
-          "description": "100% 에 가까우면 디스크가 포화 상태",
+          "description": "100% 에 가까우면 디스크 포화",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -1061,7 +1900,7 @@ data:
             "h": 6,
             "w": 12,
             "x": 12,
-            "y": 38
+            "y": 69
           },
           "targets": [
             {
@@ -1086,7 +1925,6 @@ data:
                 "lineWidth": 1,
                 "fillOpacity": 8,
                 "showPoints": "never",
-                "axisLabel": "",
                 "spanNulls": true
               }
             },
@@ -1098,6 +1936,7 @@ data:
               "placement": "right",
               "showLegend": true,
               "calcs": [
+                "mean",
                 "lastNotNull",
                 "max"
               ]
@@ -1115,15 +1954,15 @@ data:
             "h": 1,
             "w": 24,
             "x": 0,
-            "y": 44
+            "y": 75
           },
           "collapsed": false,
           "panels": []
         },
         {
           "type": "timeseries",
-          "title": "노드별 수신 (RX)",
-          "description": "가상 인터페이스(veth, calico)는 제외한 실제 NIC 기준",
+          "title": "수신 (RX)",
+          "description": "veth·calico 같은 가상 인터페이스는 제외한 실제 NIC 기준",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -1132,7 +1971,7 @@ data:
             "h": 7,
             "w": 12,
             "x": 0,
-            "y": 45
+            "y": 76
           },
           "targets": [
             {
@@ -1157,7 +1996,6 @@ data:
                 "lineWidth": 1,
                 "fillOpacity": 8,
                 "showPoints": "never",
-                "axisLabel": "",
                 "spanNulls": true
               }
             },
@@ -1169,6 +2007,7 @@ data:
               "placement": "right",
               "showLegend": true,
               "calcs": [
+                "mean",
                 "lastNotNull",
                 "max"
               ]
@@ -1181,7 +2020,7 @@ data:
         },
         {
           "type": "timeseries",
-          "title": "노드별 송신 (TX)",
+          "title": "송신 (TX)",
           "description": "",
           "datasource": {
             "type": "prometheus",
@@ -1191,7 +2030,7 @@ data:
             "h": 7,
             "w": 12,
             "x": 12,
-            "y": 45
+            "y": 76
           },
           "targets": [
             {
@@ -1216,7 +2055,6 @@ data:
                 "lineWidth": 1,
                 "fillOpacity": 8,
                 "showPoints": "never",
-                "axisLabel": "",
                 "spanNulls": true
               }
             },
@@ -1228,6 +2066,7 @@ data:
               "placement": "right",
               "showLegend": true,
               "calcs": [
+                "mean",
                 "lastNotNull",
                 "max"
               ]
@@ -1240,8 +2079,8 @@ data:
         },
         {
           "type": "timeseries",
-          "title": "네트워크 에러/드롭",
-          "description": "평상시 0 이어야 한다. 계속 올라가면 NIC 또는 네트워크 설정 문제",
+          "title": "네트워크 에러 / 드롭",
+          "description": "평상시 0 이어야 한다",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -1250,7 +2089,7 @@ data:
             "h": 6,
             "w": 24,
             "x": 0,
-            "y": 52
+            "y": 83
           },
           "targets": [
             {
@@ -1311,7 +2150,6 @@ data:
                 "lineWidth": 1,
                 "fillOpacity": 8,
                 "showPoints": "never",
-                "axisLabel": "",
                 "spanNulls": true
               }
             },
@@ -1323,6 +2161,7 @@ data:
               "placement": "right",
               "showLegend": true,
               "calcs": [
+                "mean",
                 "lastNotNull",
                 "max"
               ]
