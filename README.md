@@ -9,10 +9,7 @@
 |---|---|
 | **IaC** | Terraform (모듈 10개 · 로컬 state) |
 | **오케스트레이션** | kubeadm `v1.34.9` · containerd · Calico |
-| **AWS · 네트워크** | VPC(`10.20.0.0/16`) · Public/Private Subnet(2 AZ) · Internet Gateway · Route Table · NAT Instance · VPC Endpoint(S3 Gateway · SSM Interface) · Security Group · Network ACL |
-| **AWS · 컴퓨트** | EC2 · Auto Scaling Group · Launch Template · EBS(gp3) · Custom AMI |
-| **AWS · 트래픽/도메인** | ALB(Listener 80·443 · Target Group) · Route 53 · ACM |
-| **AWS · 운영** | S3(ALB 로그 · etcd 백업) · IAM Role/Instance Profile · SSM Session Manager · SSM Parameter Store |
+| **AWS** | `ap-northeast-2` · VPC · Public/Private Subnet(2 AZ) · EC2 · Auto Scaling Group · EBS · ALB · Route 53 · ACM · S3 |
 | **배포** | GitHub Actions → GHCR → ArgoCD(GitOps) · ingress-nginx · HPA + Cluster Autoscaler |
 | **관측** | Prometheus · Grafana · node-exporter |
 
