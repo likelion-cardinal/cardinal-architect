@@ -30,7 +30,18 @@
 
 ![Cardinal 인프라 아키텍처](docs/architecture.png)
 
-### 왜 이렇게 설계했는가
+### 출발점
+
+이 프로젝트의 첫 목적은 **Terraform과 Ansible로 쿠버네티스 클러스터를 세우는 구성을 실제 서비스에 적용해 보는 것**이었습니다.
+
+- [sohappytoday/terraform-aws](https://github.com/sohappytoday/terraform-aws) — Terraform으로 AWS 인프라 프로비저닝
+- [sohappytoday/ansible](https://github.com/sohappytoday/ansible) — Ansible로 쿠버네티스 클러스터 구성
+
+여기서 한 단계 올린 아키텍처를 이 저장소에 작성했습니다.
+학습용 구성과 실제 서비스의 차이는 결국 **예산·트래픽·장애**라는 제약이었고, 아래 설계는 대부분 그 제약에 대한 답입니다.
+특히 노드 구성은 부팅 시점에 Ansible이 개입할 수 없는 오토스케일링 환경에 맞춰, **Custom AMI + 부트스트랩 자동화**로 다시 짰습니다.
+
+### 클라우드 아키텍처
 
 **진입점을 ALB 하나로 좁혔다.**
 인바운드는 ALB 80/443만 열리고, 그 뒤의 모든 노드는 Private Subnet에 있어 퍼블릭 IP가 없습니다.
@@ -39,14 +50,33 @@ TLS는 ACM 인증서로 ALB에서 종료하고 노드로는 평문 NodePort 3008
 ALB는 생성 자체가 서로 다른 AZ의 서브넷 2개를 요구하므로 서브넷은 2 AZ로 깔되, EC2는 비용을 위해 한 AZ에 모았습니다.
 ALB의 cross-zone 로드밸런싱은 기본으로 켜져 있고 무료라 다른 AZ의 ALB 노드가 타겟으로 넘겨도 추가 비용이 없습니다.
 
+**Reverse Proxy EC2를 ALB로 바꿔 진입점의 안정성을 올렸다.**
+앞선 구성(그리고 지금의 staging)에서는 nginx를 올린 **EC2 한 대가 리버스 프록시** 역할을 했습니다.
+이 방식은 그 인스턴스가 죽으면 서비스 전체가 같이 죽고, 인증서 갱신도 노드 추가도 사람이 직접 챙겨야 합니다.
+prod에서는 그 자리를 **ALB**로 바꿨습니다 — AWS가 관리하는 다중 AZ 구성이라 인스턴스 단위 장애가 사라지고,
+TLS는 ACM으로 자동 갱신되며, 헬스체크에 실패한 노드는 자동으로 타겟에서 빠집니다.
+
+**도메인은 Route 53을 쓸 수밖에 없었다.**
+도메인은 가비아에서 샀지만 DNS는 Route 53에 있습니다. **ALB는 고정 IP가 없어 A 레코드로 직접 가리킬 수 없고,
+도메인 루트(`2026cardinal.com`)에 붙이려면 Alias A 레코드가 필요한데 이건 Route 53에서만 만들 수 있습니다.**
+그래서 Hosted Zone을 만들고 가비아 네임서버를 Route 53의 NS 4개로 바꿨습니다. ACM 인증서의 DNS 검증도 같은 Zone에서 처리됩니다.
+
 **아웃바운드는 NAT Instance 하나로 좁혔다.**
 Private 노드도 이미지 pull 같은 아웃바운드가 필요합니다. 관리형 NAT Gateway는 월 7만 원 수준이라 예산에 맞지 않아,
 `source_dest_check = false` + `iptables MASQUERADE`로 직접 만든 **NAT Instance**를 씁니다.
 1대라 SPOF가 되므로 **size-1 ASG로 감싸** 죽으면 자동으로 다시 뜨게 하고, S3·ECR 트래픽은 **무료인 S3 Gateway Endpoint**로 NAT를 우회시켰습니다.
 
+**ASG는 정반대의 두 목적으로 썼다 — 확장, 그리고 자기 치유.**
+App 노드 ASG(`min 1` / `max 3`)는 Cluster Autoscaler가 부하에 따라 크기를 바꾸는 **확장용**입니다.
+반면 NAT를 감싼 ASG는 `min = max = 1`로 고정해 크기를 절대 바꾸지 않습니다 — 목적이 확장이 아니라 **죽으면 다시 띄우는 자기 치유**이기 때문입니다.
+같은 리소스를 반대 의도로 쓴 셈이지만, 둘 다 목적은 하나입니다. **사람이 새벽에 깨서 인스턴스를 다시 만들지 않는 것.**
+ASG에 Target Group ARN을 연결해 두면 스케일아웃된 노드가 별도 작업 없이 ALB 뒤에 등록됩니다.
+
 **관리자 경로에는 인바운드 포트를 열지 않았다.**
 Control Plane에는 SSH 포트조차 없습니다. 관리자는 **SSM Session Manager**로 VPC Interface Endpoint를 거쳐 들어옵니다.
 Bastion 인스턴스 비용과 열린 22번 포트를 동시에 없애기 위한 선택입니다.
+
+### 리소스 아키텍처
 
 **노드를 역할로 3등분했다.**
 
