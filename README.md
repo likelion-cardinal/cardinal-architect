@@ -96,6 +96,38 @@ ASG로 새로 뜬 EC2는 쿠버네티스가 없어 클러스터에 못 붙습니
 SSM Parameter Store에 6시간마다 갱신해두면 신규 노드가 부팅하며 그것을 받아 `kubeadm join`합니다.
 기본 부트스트랩 토큰 TTL이 24시간이라, 갱신이 없으면 축제 도중 스케일아웃이 조용히 실패합니다.
 
+**ingress-nginx는 Deployment가 아니라 DaemonSet으로 띄웠다.**
+ALB가 NodePort 30080으로 넘긴 요청을 받아 경로별로 서비스에 배분하는 L7 라우터입니다.
+ALB는 파드가 아니라 노드 단위로 타겟을 잡기 때문에, 컨트롤러가 없는 노드가 타겟에 끼면 헬스체크에 실패하거나 노드를 한 번 더 건너뛰게 됩니다.
+모든 app 노드에 하나씩 두면 ASG가 노드를 늘리는 즉시 그 노드가 정상 타겟이 됩니다.
+
+**metrics-server는 HPA의 전제 조건이다.**
+쿠버네티스는 기본적으로 파드가 CPU·메모리를 얼마나 쓰는지 모릅니다.
+metrics-server가 각 kubelet에서 사용량을 모아 `metrics.k8s.io` API로 노출해야 HPA가 그 값을 읽고 레플리카 수를 정할 수 있습니다(`kubectl top`도 같은 API를 씁니다).
+HPA(2~6) → Cluster Autoscaler → ASG로 이어지는 확장 사슬의 첫 단추라, 이게 없으면 뒤의 자동화가 전부 멈춥니다.
+
+**ArgoCD로 배포를 git에 묶었다.**
+이 저장소의 `manifest/` 디렉토리가 곧 클러스터의 상태 정의이고, ArgoCD가 git과 실제 클러스터의 차이를 계속 비교해 맞춥니다.
+사람이 `kubectl apply`를 직접 치지 않으니 누가 무엇을 바꿨는지가 git 히스토리에 남고, 급해서 손으로 고친 것도 결국 원래 정의로 되돌아옵니다.
+축제처럼 여러 사람이 동시에 붙는 기간에는 이 되돌림 자체가 사고 예방입니다. 확장할 이유가 없는 도구라 system 노드에 고정했습니다.
+
+**MySQL은 RDS를 쓰지 않고 클러스터 안에 뒀다.**
+RDS는 이 예산에서 가장 큰 고정비 중 하나이고 Multi-AZ를 켜면 두 배가 됩니다. 그래서 클러스터 안의 파드로 직접 운영합니다.
+포기한 것은 명확합니다 — 자동 백업·페일오버·패치가 전부 사라지고, 그 자리를 mysqldump CronJob이 대신합니다.
+대신 확장하지 않는 system 노드와 정적 EBS(`/mnt/data/mysql`)에 hostPath로 묶어, 오토스케일링 이벤트가 데이터에 닿지 않게 했습니다.
+파드가 특정 노드에 종속되는 대가를 치르고 데이터 안전을 산 셈입니다.
+
+**Prometheus·Grafana는 CloudWatch 대신 직접 운영한다.**
+HPA가 보는 것과 같은 파드 단위 지표가 필요했고, CloudWatch Container Insights는 수집량에 비례해 요금이 붙어 예산을 예측하기 어렵습니다.
+node-exporter를 DaemonSet으로 세 역할 노드 전부(toleration을 달아 Control Plane까지)에 띄우고, Grafana에서 역할별 토글로 노드·파드 CPU·메모리를 봅니다.
+두 컴포넌트의 데이터는 `/mnt/data` 아래에 있어 노드를 다시 구워도 대시보드와 지표가 살아남습니다.
+
+**staging은 쿠버네티스를 쓰지 않는다.**
+예산을 아끼려고 `t3.small`(2 GiB) 한 대로 운영하는데, 이 크기에서는 kubelet과 시스템 컴포넌트가 메모리의 상당 부분을 먹습니다.
+그래서 swap을 켜서 부족한 메모리를 버티기로 했고, 쿠버네티스는 kubelet이 기본적으로 swap이 켜진 노드에서 기동을 거부하므로(`failSwapOn`) 아예 Docker Compose로 갔습니다.
+검증 환경에 필요한 건 성능이 아니라 "프로덕션과 같은 이미지가 일단 다 뜨는 것"이기 때문입니다.
+대신 배포 자동화는 Watchtower가 대신합니다 — GHCR을 30초마다 폴링해 라벨이 붙은 backend·frontend 컨테이너만 새 이미지로 교체합니다. prod의 ArgoCD 자리입니다.
+
 ### 코드 구조
 
 ```
