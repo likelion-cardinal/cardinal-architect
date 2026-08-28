@@ -278,6 +278,18 @@ kubeadm·kubelet·containerd와 필요한 이미지를 미리 구워 두고, 부
 남은 조각은 join 토큰이었습니다. 기본 부트스트랩 토큰은 24시간 뒤 만료돼 축제 도중 스케일아웃이 조용히 실패할 수 있습니다.
 그래서 컨트롤 플레인이 유효한 join 커맨드를 SSM Parameter Store에 6시간마다 갱신해 두고, 새 노드가 부팅하며 그 값을 받아 쓰도록 했습니다.
 
+**결과**
+
+| 방식 | 노드 1대를 클러스터에 투입하기까지 |
+|---|---|
+| 수동 부트스트랩 | 약 1시간 |
+| Ansible 플레이북 | 약 5분 |
+| **Custom AMI + SSM join** | **56초** |
+
+앞의 두 값은 이전 개인 프로젝트에서의 경험치이고, 56초는 이번 클러스터에서 ASG `desired_capacity`를
+1 → 2로 올려 실측한 값입니다(EC2 `LaunchTime` → 노드 `Ready` 조건 전이 시각).
+스케일아웃은 이미 부하가 몰린 뒤에 일어나기 때문에, 이 차이가 그대로 지연 흡수 능력이 됩니다.
+
 ### 3-4. 카카오 로그인이 되지 않았습니다
 
 `AUTH`
@@ -337,9 +349,28 @@ kubeadm·kubelet·containerd와 필요한 이미지를 미리 구워 두고, 부
 
 ![kubectl get nodes / pods](docs/result-cluster.png)
 
+### 오토스케일링 — 노드 증설
+
+ASG의 `desired_capacity`를 1 → 2로 올렸을 때입니다. 새 인스턴스가 부팅과 동시에
+SSM Parameter Store에서 join 커맨드를 받아 스스로 `kubeadm join`하고, 곧바로
+DaemonSet(`calico-node`·`kube-proxy`·`node-exporter`)과 `ingress-nginx`가 배치됩니다.
+kubelet·containerd·Calico가 Custom AMI에 미리 구워져 있어 부팅 후에는 join만 하면 됩니다.
+**EC2 부팅(`13:22:10Z`)부터 노드 `Ready`(`13:23:06Z`)까지 56초**가 걸렸습니다.
+
+![ASG 노드 증설](docs/result-autoscale.png)
+
 ---
 
 ## 5. 결과
+
+**숫자로 본 결과**
+
+| 지표 | 값 |
+|---|---|
+| 노드 합류 시간 (EC2 부팅 → `Ready`) | **56초** (수동 ~1시간 · Ansible ~5분 대비) |
+| 열린 인바운드 포트 | **0개** |
+| Terraform 모듈 | **10개** |
+| 오토스케일 범위 | 파드 HPA `2~6` / 노드 ASG `1~3` |
 
 **만든 것**
 
