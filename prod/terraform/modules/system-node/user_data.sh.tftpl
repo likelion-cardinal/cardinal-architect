@@ -1,8 +1,8 @@
 #!/bin/bash
 # System Worker 부팅 스크립트
 #  1) hostname 설정
-#  2) (정적 EBS가 있을 때) MySQL 데이터용 EBS를 포맷 후 지정 디렉토리에 마운트
-#     → 파드는 이 디렉토리를 hostPath PV로 사용. join보다 먼저 끝내야 파드가 뜰 때 경로가 있다.
+#  2) (정적 EBS가 있을 때) 영속 데이터용 EBS를 포맷 후 지정 디렉토리에 마운트
+#     → 파드는 하위 디렉토리를 hostPath PV로 사용. join보다 먼저 끝내야 파드가 뜰 때 경로가 있다.
 #  3) SSM Parameter Store에서 join 커맨드를 받아 kubeadm join (App Worker와 동일 경로)
 # 로그: /var/log/cardinal-join.log
 set -euxo pipefail
@@ -10,8 +10,8 @@ exec > >(tee -a /var/log/cardinal-join.log) 2>&1
 
 hostnamectl set-hostname ${hostname}
 
-%{ if mysql_static ~}
-# ── MySQL 데이터 EBS 포맷 + 마운트 (${mount_point}) ──
+%{ if data_static ~}
+# ── 영속 데이터 EBS 포맷 + 마운트 (${mount_point}) ──
 # Nitro(m7i-flex)는 EBS가 NVMe로 잡히고 device 이름이 재매핑되므로,
 # device 이름 대신 "루트가 아닌 데이터 디스크"를 찾아 LABEL로 안정적으로 마운트한다.
 
@@ -34,12 +34,23 @@ done
 
 if [ -n "$DATA_DEV" ]; then
   # 파일시스템이 없으면 최초 1회만 포맷(기존 데이터 보존)
-  blkid "$DATA_DEV" || mkfs.ext4 -L mysql-data "$DATA_DEV"
+  blkid "$DATA_DEV" || mkfs.ext4 -L cardinal-data "$DATA_DEV"
   mkdir -p ${mount_point}
   # LABEL 기반 fstab (NVMe 재매핑에도 안정), nofail로 부팅 안전
-  grep -q 'LABEL=mysql-data' /etc/fstab || \
-    echo 'LABEL=mysql-data ${mount_point} ext4 defaults,nofail 0 2' >>/etc/fstab
+  grep -q 'LABEL=cardinal-data' /etc/fstab || \
+    echo 'LABEL=cardinal-data ${mount_point} ext4 defaults,nofail 0 2' >>/etc/fstab
   mount -a
+
+  # 마운트가 실제로 됐을 때만 서브디렉토리를 만든다. 실패한 채로 만들면 파드가
+  # 루트 EBS에 조용히 쓰게 되어(hostPath DirectoryOrCreate) 문제가 안 보인다.
+  if mountpoint -q ${mount_point}; then
+    mkdir -p ${mount_point}/mysql ${mount_point}/prometheus ${mount_point}/grafana
+    # 파드의 initContainer가 chown하지만, 소유자를 미리 맞춰두면 첫 기동이 빠르다.
+    chown 65534:65534 ${mount_point}/prometheus  # prometheus (nobody)
+    chown 472:472 ${mount_point}/grafana         # grafana
+  else
+    echo "WARNING: ${mount_point} is not a mountpoint; data would land on root EBS" >&2
+  fi
 fi
 %{ endif ~}
 

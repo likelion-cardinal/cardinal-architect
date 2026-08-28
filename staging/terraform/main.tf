@@ -18,23 +18,6 @@ data "aws_subnets" "default" {
   }
 }
 
-# 최신 Amazon Linux 2023 (x86_64). ec2:DescribeImages 권한만 있으면 조회 가능
-# (SSM Parameter 조회는 ssm:GetParameter 권한이 필요해 terraform-test 유저에선 막힘).
-data "aws_ami" "al2023" {
-  most_recent = true
-  owners      = ["amazon"]
-
-  filter {
-    name   = "name"
-    values = ["al2023-ami-2023.*-x86_64"]
-  }
-
-  filter {
-    name   = "state"
-    values = ["available"]
-  }
-}
-
 resource "aws_key_pair" "cardinal" {
   key_name   = "${local.name}-key"
   public_key = trimspace(file(pathexpand(var.public_key_path)))
@@ -46,8 +29,11 @@ resource "aws_key_pair" "cardinal" {
 
 # SG
 resource "aws_security_group" "app" {
-  name        = "${local.name}-app-sg"
-  description = "staging app: SSH from my IP, HTTP/HTTPS 80/443"
+  name = "${local.name}-app-sg"
+  # SG description은 AWS에서 수정 불가라 값을 바꾸면 SG가 통째로 교체된다(ID 변경).
+  # 문구가 실제 규칙(80/443)과 안 맞지만, 고치려면 name_prefix +
+  # create_before_destroy로 바꿔서 안전하게 교체하는 작업이 따로 필요하다.
+  description = "staging app: SSH from my IP, FE 3000"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
@@ -89,7 +75,7 @@ resource "aws_security_group" "app" {
 
 # 단일 staging ec2
 resource "aws_instance" "app" {
-  ami                    = data.aws_ami.al2023.id
+  ami                    = var.ami_id
   instance_type          = var.instance_type
   subnet_id              = data.aws_subnets.default.ids[0]
   vpc_security_group_ids = [aws_security_group.app.id]

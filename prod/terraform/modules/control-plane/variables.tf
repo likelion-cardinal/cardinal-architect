@@ -100,14 +100,20 @@ variable "join_parameter_name" {
   default     = "join-command"
 }
 
-variable "token_refresh_cron" {
-  description = "join 토큰 갱신 cron 스케줄. 토큰 TTL(24h)보다 촘촘해야 만료 구멍이 생기지 않는다"
+variable "token_refresh_schedule" {
+  description = "join 토큰 갱신 주기. systemd OnCalendar 형식(cron 아님 — AL2023에 cronie가 없어 타이머를 쓴다). 토큰 TTL(24h)보다 촘촘해야 만료 구멍이 생기지 않는다"
   type        = string
-  default     = "0 */6 * * *"
+  default     = "*-*-* 00/6:00:00" # 6시간마다
 }
 
 variable "etcd_backup_bucket" {
   description = "etcd 스냅샷 업로드용 공유 S3 버킷 이름. 비우면 백업 cron 생략(버킷 생성 후 주입)"
   type        = string
   default     = ""
+}
+
+variable "node_labels" {
+  description = "kubelet이 등록 시 스스로 붙이는 노드 라벨. system-node·app-asg의 동명 변수와 같은 키를 써야 node-exporter DaemonSet(cardinal.io/role Exists)이 CP도 대상에 넣는다. 값은 system/application과 겹치면 안 된다 — Prometheus·ArgoCD·ingress의 nodeSelector가 CP로 새어든다"
+  type        = string
+  default     = "cardinal.io/role=control-plane"
 }

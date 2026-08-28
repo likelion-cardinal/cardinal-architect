@@ -83,14 +83,14 @@ variable "node_labels" {
   default     = "cardinal.io/role=system"
 }
 
-variable "mysql_data_volume_size" {
-  description = "MySQL 데이터용 별도 EBS 크기(GB). 0이면 생성 안 함. >0이면 정적 EBS를 노드 AZ에 고정 부착 후 mysql_mount_point에 마운트"
+variable "data_volume_size" {
+  description = "영속 데이터용 별도 EBS 크기(GB). 0이면 생성 안 함. >0이면 정적 EBS를 노드 AZ에 고정 부착 후 data_mount_point에 마운트. MySQL·Prometheus·Grafana가 서브디렉토리를 나눠 쓴다"
   type        = number
   default     = 0
 }
 
-variable "mysql_mount_point" {
-  description = "MySQL 데이터 EBS를 마운트할 디렉토리 (파드가 hostPath PV로 사용)"
+variable "data_mount_point" {
+  description = "데이터 EBS를 마운트할 디렉토리. 하위 mysql/prometheus/grafana를 파드가 hostPath로 사용"
   type        = string
-  default     = "/mnt/mysql-data"
+  default     = "/mnt/data"
 }

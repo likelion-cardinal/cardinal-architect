@@ -7,18 +7,18 @@ locals {
 
   ami_id = var.ami_id != "" ? var.ami_id : nonsensitive(data.aws_ssm_parameter.al2023.value)
 
-  mysql_static      = var.mysql_data_volume_size > 0
-  mysql_volume_name = "${local.name}-mysql-data"
+  data_static      = var.data_volume_size > 0
+  data_volume_name = "${local.name}-data"
 
   # join 토큰 파라미터 경로. CP(발행)·app-asg(수신)와 같은 값을 봐야 한다.
   join_param = "/${var.project}/${var.env}/${var.ssm_parameter_path}/${var.join_parameter_name}"
 
-  # user_data: hostname → (정적 EBS가 있으면) MySQL 볼륨 포맷/마운트 → kubeadm join.
+  # user_data: hostname → (정적 EBS가 있으면) 데이터 볼륨 포맷/마운트 → kubeadm join.
   # MySQL 백업(mysqldump)은 클러스터 CronJob으로 별도 운영.
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
     hostname            = var.hostname
-    mysql_static        = local.mysql_static
-    mount_point         = var.mysql_mount_point
+    data_static         = local.data_static
+    mount_point         = var.data_mount_point
     join_param          = local.join_param
     join_retry_attempts = var.join_retry_attempts
     node_labels         = var.node_labels
@@ -42,8 +42,9 @@ resource "aws_instance" "system" {
   user_data                   = local.user_data
 
   metadata_options {
-    http_tokens   = "required"
-    http_endpoint = "enabled"
+    http_tokens                 = "required"
+    http_endpoint               = "enabled"
+    http_put_response_hop_limit = 2 # 파드(cluster-autoscaler)에서 IMDS 접근 허용
   }
 
   root_block_device {
@@ -62,23 +63,25 @@ resource "aws_instance" "system" {
   }
 }
 
-# ── (옵션) MySQL 데이터용 정적 EBS — 노드 AZ에 고정 ──
+# ── (옵션) 영속 데이터용 정적 EBS — 노드 AZ에 고정 ──
+# MySQL·Prometheus·Grafana가 서브디렉토리로 공유한다. 루트 EBS는 인스턴스 교체 시
+# 함께 삭제되므로(AMI 교체가 replacement를 유발한다) 살아남아야 할 데이터는 전부 여기에 둔다.
 # 동적 PVC(EBS CSI)를 쓰면 불필요. 정적 PV로 관리하고 싶을 때만 size>0.
-resource "aws_ebs_volume" "mysql" {
-  count = local.mysql_static ? 1 : 0
+resource "aws_ebs_volume" "data" {
+  count = local.data_static ? 1 : 0
 
   availability_zone = aws_instance.system.availability_zone
-  size              = var.mysql_data_volume_size
+  size              = var.data_volume_size
   type              = "gp3"
   encrypted         = true
 
-  tags = merge(local.tags, { Name = local.mysql_volume_name })
+  tags = merge(local.tags, { Name = local.data_volume_name })
 }
 
-resource "aws_volume_attachment" "mysql" {
-  count = local.mysql_static ? 1 : 0
+resource "aws_volume_attachment" "data" {
+  count = local.data_static ? 1 : 0
 
   device_name = "/dev/xvdf" # Nitro에선 NVMe로 재매핑됨(user_data가 LABEL로 마운트)
-  volume_id   = aws_ebs_volume.mysql[0].id
+  volume_id   = aws_ebs_volume.data[0].id
   instance_id = aws_instance.system.id
 }

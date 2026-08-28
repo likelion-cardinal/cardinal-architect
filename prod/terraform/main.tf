@@ -106,10 +106,14 @@ module "system_node" {
   ssm_parameter_path  = local.kubeadm_ssm_path
   join_parameter_name = local.join_parameter_name
 
-  # MySQL 데이터용 정적 EBS. 크기 지정 시 노드 AZ에 생성·부착 후 mysql_mount_point에 마운트.
-  # 파드는 이 디렉토리를 hostPath PV로 사용. 백업(mysqldump)은 클러스터 CronJob으로 별도.
-  # mysql_data_volume_size = 20
-  # mysql_mount_point      = "/mnt/mysql-data"
+  # 영속 데이터용 정적 EBS. 노드 AZ에 생성·부착 후 data_mount_point에 마운트하고
+  # MySQL·Prometheus·Grafana가 하위 디렉토리를 hostPath로 나눠 쓴다.
+  #   /mnt/data/mysql /mnt/data/prometheus /mnt/data/grafana
+  # 루트 EBS는 인스턴스 교체(= node_ami_id 변경)와 함께 삭제되므로, 살아남아야 할
+  # 데이터를 루트에 두면 AMI를 다시 굽는 순간 메트릭과 대시보드가 전소한다.
+  # 백업(mysqldump)은 클러스터 CronJob으로 별도.
+  data_volume_size = 20
+  # data_mount_point = "/mnt/data"  # 기본값
 }
 
 module "dns" {

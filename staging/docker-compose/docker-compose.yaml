@@ -78,6 +78,28 @@ services:
     networks:
       - cardinal-net
 
+  frontend:
+    image: ghcr.io/likelion-cardinal/cardinal-fe-staging:staging
+    container_name: cardinal-fe-staging
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Seoul
+      # 컨테이너 시작 시 번들의 placeholder 가 이 값으로 치환된다 (재빌드 불필요)
+      - VITE_API_URL=${VITE_API_URL}
+      - VITE_ADMIN_PATH=${VITE_ADMIN_PATH}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    networks:
+      - cardinal-net
+
   watchtower:
     image: containrrr/watchtower
     container_name: watchtower
@@ -102,6 +124,7 @@ services:
       - certbot-www:/var/www/certbot
     depends_on:
       - backend
+      - frontend
     networks:
       - cardinal-net
 

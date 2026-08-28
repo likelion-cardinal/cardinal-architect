@@ -130,7 +130,9 @@ resource "aws_vpc_security_group_ingress_rule" "node_mesh" {
   security_group_id            = local.node_sgs[each.value.target]
   referenced_security_group_id = local.node_sgs[each.value.source]
   ip_protocol                  = "-1"
-  description                  = "cluster node-to-node all (${each.value.source}->${each.value.target}, CNI agnostic)"
+  # AWS가 허용하는 description 문자는 [a-zA-Z0-9. _-:/()#,@[]+=&;{}!$*] 뿐이라
+  # 화살표(->)를 쓰면 InvalidParameterValue로 거부된다.
+  description = "cluster node-to-node all (${each.value.source} to ${each.value.target}, CNI agnostic)"
 }
 
 # 워커 NodePort 수신 (출처=ALB SG만)

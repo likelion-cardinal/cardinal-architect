@@ -9,11 +9,11 @@ output "private_ip" {
 }
 
 output "availability_zone" {
-  description = "System Worker AZ (MySQL EBS 고정 기준)"
+  description = "System Worker AZ (데이터 EBS 고정 기준)"
   value       = aws_instance.system.availability_zone
 }
 
-output "mysql_volume_id" {
-  description = "MySQL 정적 EBS 볼륨 ID (생성한 경우)"
-  value       = var.mysql_data_volume_size > 0 ? aws_ebs_volume.mysql[0].id : null
+output "data_volume_id" {
+  description = "영속 데이터용 정적 EBS 볼륨 ID (생성한 경우)"
+  value       = var.data_volume_size > 0 ? aws_ebs_volume.data[0].id : null
 }

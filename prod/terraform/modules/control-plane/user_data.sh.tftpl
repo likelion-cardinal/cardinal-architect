@@ -47,6 +47,8 @@ nodeRegistration:
   kubeletExtraArgs:
     - name: provider-id
       value: aws:///$AZ/$INSTANCE_ID
+    - name: node-labels
+      value: ${node_labels}
 ---
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
@@ -104,8 +106,36 @@ chmod +x /usr/local/bin/publish-join-command.sh
 
 # 즉시 1회 발행(대기 중이던 App 노드가 이 시점에 붙는다) + 주기 갱신
 /usr/local/bin/publish-join-command.sh
-echo '${token_refresh_cron} root /usr/local/bin/publish-join-command.sh >> /var/log/join-token.log 2>&1' \
-  >/etc/cron.d/publish-join-command
+
+# 주기 갱신은 cron이 아니라 systemd 타이머로 건다.
+# AL2023 최소 이미지에는 cronie가 없어 /etc/cron.d 디렉토리 자체가 없고(set -e로 부팅 스크립트가
+# 여기서 죽어 아래 백업 설정이 통째로 누락됐다), dnf install은 NAT 경유 인터넷에 의존해
+# NAT ASG와의 부팅 순서 경합에 걸린다. systemd는 항상 있으므로 네트워크와 무관하게 동작한다.
+cat >/etc/systemd/system/publish-join-command.service <<'EOS'
+[Unit]
+Description=Publish kubeadm join command to SSM Parameter Store
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/publish-join-command.sh
+StandardOutput=append:/var/log/join-token.log
+StandardError=append:/var/log/join-token.log
+EOS
+
+cat >/etc/systemd/system/publish-join-command.timer <<'EOS'
+[Unit]
+Description=Refresh kubeadm join token before its 24h TTL expires
+
+[Timer]
+OnCalendar=${token_refresh_schedule}
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOS
+
+systemctl daemon-reload
+systemctl enable --now publish-join-command.timer
 
 %{ if etcd_backup_bucket != "" ~}
 # ═══════════════════════════════════════════════════════
@@ -148,9 +178,32 @@ EOS
 sed -i "s|CARDINAL_BACKUP_BUCKET|${etcd_backup_bucket}|" /usr/local/bin/etcd-backup.sh
 chmod +x /usr/local/bin/etcd-backup.sh
 
-# 매일 03:00 백업
-echo '0 3 * * * root /usr/local/bin/etcd-backup.sh >> /var/log/etcd-backup.log 2>&1' \
-  >/etc/cron.d/etcd-backup
+# 매일 03:00 백업 (cron 대신 systemd 타이머 — 위 join 토큰 타이머와 같은 이유)
+cat >/etc/systemd/system/etcd-backup.service <<'EOS'
+[Unit]
+Description=Snapshot etcd and PKI to S3
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/etcd-backup.sh
+StandardOutput=append:/var/log/etcd-backup.log
+StandardError=append:/var/log/etcd-backup.log
+EOS
+
+cat >/etc/systemd/system/etcd-backup.timer <<'EOS'
+[Unit]
+Description=Daily etcd and PKI backup
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOS
+
+systemctl daemon-reload
+systemctl enable --now etcd-backup.timer
 
 # ── 재해 복구 스크립트 (굽기만 하고 자동 실행하지 않는다) ──
 # 자동화하면 멀쩡한 클러스터에 새 CP가 뜰 때 옛 스냅샷을 덮어쓸 수 있다.

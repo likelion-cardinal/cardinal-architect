@@ -45,8 +45,9 @@ resource "aws_launch_template" "app" {
   vpc_security_group_ids = [var.security_group_id]
 
   metadata_options {
-    http_tokens   = "required" # IMDSv2 강제
-    http_endpoint = "enabled"
+    http_tokens                 = "required" # IMDSv2 강제
+    http_endpoint               = "enabled"
+    http_put_response_hop_limit = 2 # 파드에서 IMDS 접근 허용
   }
 
   block_device_mappings {
