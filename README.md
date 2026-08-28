@@ -9,8 +9,9 @@
 |---|---|
 | **IaC** | Terraform (모듈 10개 · 로컬 state) |
 | **오케스트레이션** | kubeadm `v1.34.9` · containerd · Calico |
-| **AWS** | `ap-northeast-2` · VPC · Public/Private Subnet(2 AZ) · EC2 · Auto Scaling Group · EBS · ALB · Route 53 · ACM · S3 |
-| **배포** | GitHub Actions → GHCR → ArgoCD(GitOps) · ingress-nginx · HPA + Cluster Autoscaler |
+| **AWS** | VPC · Public/Private Subnet · EC2 · ASG · EBS · ALB · Route 53 · ACM · S3 |
+| **배포 · staging** | GitHub Actions → GHCR → Watchtower(단일 EC2 · Docker Compose · nginx + certbot) |
+| **배포 · prod** | GitHub Actions → GHCR → ArgoCD(GitOps) · ingress-nginx · HPA + Cluster Autoscaler |
 | **관측** | Prometheus · Grafana · node-exporter |
 
 ---
