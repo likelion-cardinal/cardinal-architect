@@ -201,7 +201,6 @@ staging/                # 단일 EC2 + docker compose (프로덕션과 같은 �
 | 아웃바운드 | NAT Gateway (월 ≈7만 원) | **NAT Instance + size-1 ASG** | 대폭 절감. 자동 복구는 되지만 재생성 중 수 분간 아웃바운드가 끊긴다 |
 | API 앞단 | 내부 NLB | **삭제** | CP가 1대라 로드밸런싱할 대상이 없다. 월 ≈2.5만 원 절감 |
 | DB | RDS Multi-AZ | **클러스터 내 MySQL + hostPath PV** | 인프라 비용 절감. 대가는 명확하다 — 자동 백업·페일오버가 없어 mysqldump CronJob으로 직접 대체 |
-| 스토리지 | EBS CSI 동적 PVC | **정적 EBS 1개 + 서브디렉토리** | 볼륨 개수만큼 붙는 비용을 피했다. MySQL·Prometheus·Grafana가 `/mnt/data` 아래를 나눠 쓴다. 대신 파드가 특정 노드에 묶인다 |
 | CPU 크레딧 | T 계열 기본값 `unlimited` | **`standard`로 고정** | `unlimited`는 baseline 초과분이 vCPU-시간당 **상한 없이** 과금된다. 지원금 정산에 쓸 수 없는 요금이라 "초과하면 과금" 대신 **"초과하면 쓰로틀"** 을 택했다 |
 | Terraform state | S3 + DynamoDB 잠금 | **로컬 state** | 단독 운영자 1명·단일 머신 전제. 부트스트랩의 닭-달걀 문제가 사라지는 대신, state 파일 유실이 곧 추적 불가다 |
 | 컴퓨팅 AZ | 2 AZ 분산 | **단일 AZ에 배치** | ALB 요구로 서브넷만 2 AZ. 진짜 AZ 장애 내성은 아직 없다(SPOF = AZ) — 남은 과제 |
