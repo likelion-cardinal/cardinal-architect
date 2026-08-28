@@ -5,12 +5,15 @@
 멋쟁이사자처럼 서강대 × 총동아리연합회 협업 프로젝트인 **대동제 웹서비스**의 인프라 저장소입니다.
 서강대생뿐 아니라 일반 사용자도 접근하는 서비스라, **제한된 예산 안에서 안정성과 비용 효율을 동시에 확보하는 것**을 목표로 했습니다.
 
-| | |
+| 구분 | 사용 기술 |
 |---|---|
 | **IaC** | Terraform (모듈 10개 · 로컬 state) |
-| **오케스트레이션** | kubeadm `v1.34.9` · containerd · Calico (VXLAN=Always) |
-| **클라우드** | AWS `ap-northeast-2` · 커스텀 VPC `10.20.0.0/16` |
-| **배포** | ArgoCD (GitOps) · ingress-nginx · HPA + Cluster Autoscaler |
+| **오케스트레이션** | kubeadm `v1.34.9` · containerd · Calico |
+| **AWS · 네트워크** | VPC(`10.20.0.0/16`) · Public/Private Subnet(2 AZ) · Internet Gateway · Route Table · NAT Instance · VPC Endpoint(S3 Gateway · SSM Interface) · Security Group · Network ACL |
+| **AWS · 컴퓨트** | EC2 · Auto Scaling Group · Launch Template · EBS(gp3) · Custom AMI |
+| **AWS · 트래픽/도메인** | ALB(Listener 80·443 · Target Group) · Route 53 · ACM |
+| **AWS · 운영** | S3(ALB 로그 · etcd 백업) · IAM Role/Instance Profile · SSM Session Manager · SSM Parameter Store |
+| **배포** | GitHub Actions → GHCR → ArgoCD(GitOps) · ingress-nginx · HPA + Cluster Autoscaler |
 | **관측** | Prometheus · Grafana · node-exporter |
 
 ---
