@@ -66,6 +66,39 @@ metadata:
   annotations:
     kubernetes.io/service-account.name: dev
 type: kubernetes.io/service-account-token
+---
+# default 네임스페이스: 로그 읽기 전용. exec 은 주지 않는다 — backend 파드가
+# app-secret 을 envFrom 으로 통째로 받아서, 컨테이너 안에서 env 한 번이면
+# JWT·DB·카카오·R2 자격증명이 전부 보인다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dev-log-read
+  namespace: default
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dev-log-read
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: dev
+    namespace: database
+roleRef:
+  kind: Role
+  name: dev-log-read
+  apiGroup: rbac.authorization.k8s.io
 RBAC
 
 echo "── 2/4 ${DEV_USER} 계정 ──────────────────────────"
@@ -127,10 +160,13 @@ check() { # 설명, 기대(ok|deny), 명령...
   if [ "$got" = "$expect" ]; then echo "   PASS  $desc"; else echo "   FAIL  $desc (기대=$expect 결과=$got)"; fi
 }
 check "database 파드 조회 가능"    ok   sudo -iu "$DEV_USER" kubectl get pods
-check "default 네임스페이스 차단"  deny sudo -iu "$DEV_USER" kubectl get pods -n default
-check "secret 조회 차단"           deny sudo -iu "$DEV_USER" kubectl get secrets
+check "backend 로그 조회 가능"     ok   sudo -iu "$DEV_USER" kubectl -n default logs --tail=1 deploy/backend
+check "secret 조회 차단(database)" deny sudo -iu "$DEV_USER" kubectl get secrets
+check "secret 조회 차단(default)"  deny sudo -iu "$DEV_USER" kubectl -n default get secrets
+check "backend exec 차단"          deny sudo -iu "$DEV_USER" kubectl -n default exec deploy/backend -- id
+check "kube-system 차단"           deny sudo -iu "$DEV_USER" kubectl -n kube-system get pods
 check "sudo 없음"                  deny sudo -iu "$DEV_USER" sudo -n true
 
 echo
-echo "완료. 4개 모두 PASS 면 정상이다."
+echo "완료. 7개 모두 PASS 면 정상이다."
 echo "남은 것: MySQL dev 계정 생성 + 콘솔에서 IAM 유저 생성"

@@ -64,3 +64,48 @@ metadata:
   annotations:
     kubernetes.io/service-account.name: dev
 type: kubernetes.io/service-account-token
+
+---
+# ── default 네임스페이스: 로그 읽기 전용 ──────────────────
+# 백엔드(default)가 DB(database)와 다른 네임스페이스라, 위 Role 만으로는
+# 개발자가 자기 애플리케이션 로그를 못 본다. 읽기만 따로 연다.
+#
+# exec 은 일부러 뺐다. backend 파드는 app-secret 을 통째로 envFrom 하고 있어서
+# 컨테이너 안에서 env 한 번이면 JWT 시크릿·DB 비밀번호·카카오 시크릿·R2 키가
+# 전부 보인다. database 네임스페이스와 달리 여기서는 exec 을 주면 안 된다.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dev-log-read
+  namespace: default
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+
+  # kubectl logs deploy/backend 는 Deployment 를 읽어 파드를 찾는다.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list"]
+
+  # kubectl describe pod 의 하단 Events. 재시작·OOM·스케줄 실패 원인이 여기 뜬다.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dev-log-read
+  namespace: default
+subjects:
+  # ServiceAccount 는 database 에 있지만, RoleBinding 이 default 에 있으므로
+  # 이 권한은 default 네임스페이스에서만 유효하다.
+  - kind: ServiceAccount
+    name: dev
+    namespace: database
+roleRef:
+  kind: Role
+  name: dev-log-read
+  apiGroup: rbac.authorization.k8s.io
