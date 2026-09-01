@@ -191,3 +191,15 @@ module "app_asg" {
   # 5분마다 교체한다. 그래서 클러스터에 Ingress를 올린 뒤 이 값을 true로 바꾼다.
   target_group_arns = var.register_app_nodes_to_alb ? [module.alb.target_group_arn] : []
 }
+
+# 개발팀이 database 네임스페이스(mysql/rabbitmq/redis)에 붙기 위한 접속 경로.
+# CP에 SSM으로 들어가되 root가 아닌 devops 계정으로 떨어지고, 그 계정의
+# kubeconfig가 database 네임스페이스로만 스코프된다.
+#   개발자 IAM 유저 생성 → 이 모듈이 만든 그룹에 추가 (콘솔)
+#   CP 쪽 준비(devops 계정 + kubeconfig)는 manifest/all/dev-access/setup.txt
+module "dev_access" {
+  source = "./modules/dev-access"
+
+  project = var.project
+  env     = var.env
+}

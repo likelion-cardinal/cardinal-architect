@@ -1,0 +1,66 @@
+# 개발팀용 제한 kubeconfig의 실체.
+# mysql / rabbitmq / redis 가 전부 database 네임스페이스에 있으므로 ClusterRole 은
+# 필요 없다. Role(네임스페이스 한정)로 끝난다 — 다른 네임스페이스는 조회조차 안 된다.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dev
+  namespace: database
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dev-db-access
+  namespace: database
+rules:
+  # 파드 이름을 찾고 로그를 본다.
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services"]
+    verbs: ["get", "list"]
+
+  # kubectl exec 의 RBAC 동사는 get 이 아니라 create 다.
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+
+  # 로컬 GUI 클라이언트(DBeaver 등)로 붙고 싶을 때. exec 이 이미 더 센 권한이라
+  # 여기 있다고 새로 열리는 위험은 없다.
+  - apiGroups: [""]
+    resources: ["pods/portforward"]
+    verbs: ["create"]
+
+  # `kubectl exec deploy/mysql` 은 Deployment 를 읽어 파드를 찾는다.
+  # 이게 없으면 파드 이름을 매번 직접 적어야 한다. 읽기 전용이라 수정은 불가.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dev-db-access
+  namespace: database
+subjects:
+  - kind: ServiceAccount
+    name: dev
+    namespace: database
+roleRef:
+  kind: Role
+  name: dev-db-access
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# k8s 1.24+ 는 ServiceAccount 를 만들어도 토큰 Secret 이 자동 생성되지 않는다.
+# `kubectl create token` 은 기본 1시간짜리라 축제 기간 내내 재발급해야 하므로,
+# 만료 없는 토큰을 이 방식으로 하나 박아둔다.
+# (축제가 끝나면 이 Secret 을 지우는 것으로 접속을 한 번에 끊을 수 있다)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dev-token
+  namespace: database
+  annotations:
+    kubernetes.io/service-account.name: dev
+type: kubernetes.io/service-account-token

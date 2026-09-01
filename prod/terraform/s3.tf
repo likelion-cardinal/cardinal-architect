@@ -3,6 +3,8 @@
 #  버킷을 용도별로 나누지 않고 prefix로 분리한다:
 #    alb-logs/ … ALB Access Log (악성 IP 분석 → NACL deny 목록의 근거)
 #    etcd/     … CP의 etcd 스냅샷 (단일 CP라 백업이 유일한 사고 대비책)
+#    pki/      … 클러스터 CA 아카이브 (etcd 스냅샷과 짝이 맞아야 복구된다)
+#    mysql/    … MySQL 논리 백업 (EBS는 DELETE·DROP을 막지 못한다)
 #  로컬 state를 쓰므로 이 버킷은 state 저장과 무관하다.
 # ═══════════════════════════════════════════════════════
 data "aws_caller_identity" "current" {}
@@ -87,6 +89,21 @@ resource "aws_s3_bucket_lifecycle_configuration" "shared" {
 
     expiration {
       days = var.etcd_backup_retention_days
+    }
+  }
+
+  # MySQL 논리 백업(mysqldump). etcd 스냅샷과 달리 클러스터가 아니라 애플리케이션
+  # 데이터를 되살리는 용도라 보존 기간을 따로 둔다.
+  rule {
+    id     = "expire-mysql-backups"
+    status = "Enabled"
+
+    filter {
+      prefix = "mysql/"
+    }
+
+    expiration {
+      days = var.mysql_backup_retention_days
     }
   }
 

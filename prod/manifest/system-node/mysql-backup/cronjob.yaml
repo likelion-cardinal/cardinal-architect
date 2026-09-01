@@ -1,0 +1,103 @@
+# MySQL 논리 백업 → S3 (mysql/ prefix)
+#
+# 왜 필요한가: 데이터는 /mnt/data EBS 에 있지만 EBS 는 "디스크"라서 노드 교체는
+# 막아줘도 논리적 삭제(WHERE 없는 DELETE, DROP TABLE, 잘못된 UPDATE)는 못 막는다.
+# MySQL 이 지우라고 하면 EBS 에도 지워진 상태가 그대로 남는다. 되돌리려면 다른
+# 시점의 사본이 필요하고, 그게 이 덤프다.
+#
+# etcd 백업(CP 의 systemd 타이머)과는 무관하다. 그쪽은 클러스터 상태(파드 정의·Secret)를
+# 저장할 뿐, MySQL 데이터는 hostPath 라 etcd 에 아예 들어 있지 않다.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mysql-backup
+  namespace: database
+spec:
+  # CP 의 etcd 백업은 OnCalendar 03:00 인데 AL2023 기본 TZ 가 UTC 라 실제로는
+  # 12:00 KST 에 돈다. 이쪽은 timeZone 을 명시해 트래픽이 없는 새벽에 돌린다.
+  schedule: "30 3 * * *"
+  timeZone: Asia/Seoul
+
+  # 앞 백업이 아직 돌고 있으면 건너뛴다. 두 개가 겹쳐 붙으면 커넥션만 축낸다.
+  concurrencyPolicy: Forbid
+
+  # 노드가 잠깐 없거나 스케줄러가 밀렸을 때, 10분 안이면 늦게라도 실행한다.
+  startingDeadlineSeconds: 600
+
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          # mysql 파드와 같은 노드. 덤프가 네트워크를 타지 않는다.
+          nodeSelector:
+            cardinal.io/role: system
+
+          # mysql:8.4 이미지에는 aws CLI 가 없고 amazon/aws-cli 에는 mysqldump 가
+          # 없다. 한 이미지로 못 하니 덤프와 업로드를 나누고 emptyDir 로 넘긴다.
+          initContainers:
+            - name: dump
+              image: mysql:8.4
+              command:
+                - sh
+                - -c
+                # --single-transaction: 잠금 없이 일관된 스냅샷을 뜬다. 이게 없으면
+                #   덤프 동안 테이블이 잠겨 서비스가 멈춘다(축제 중엔 치명적).
+                # --databases cardinal: mysql 시스템 DB 는 제외한다. MyISAM 이라
+                #   --single-transaction 으로 일관성이 안 잡히고, 복구에도 불필요.
+                - |
+                  set -eo pipefail
+                  MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqldump \
+                    -h mysql -u root \
+                    --single-transaction \
+                    --databases cardinal \
+                  | gzip -9 > /backup/dump.sql.gz
+                  ls -lh /backup/dump.sql.gz
+              env:
+                - name: MYSQL_ROOT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: mysql-secret
+                      key: root-password
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+
+          containers:
+            - name: upload
+              image: amazon/aws-cli:2
+              command:
+                - sh
+                - -c
+                # 자격증명은 노드 인스턴스 프로파일에서 IMDS 로 받는다(IRSA 없음).
+                # system 노드의 http_put_response_hop_limit=2 가 이걸 가능하게 한다.
+                # 1이면 파드에서 IMDS 에 못 닿아 여기서 조용히 실패한다.
+                - |
+                  set -eo pipefail
+                  KEY="mysql/cardinal-$(date +%Y-%m-%d-%H%M).sql.gz"
+                  aws s3 cp /backup/dump.sql.gz "s3://$BUCKET/$KEY"
+                  echo "uploaded s3://$BUCKET/$KEY"
+              env:
+                - name: BUCKET
+                  value: cardinal-prod-shared-000034487830
+                - name: AWS_DEFAULT_REGION
+                  value: ap-northeast-2
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 512Mi
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+
+          volumes:
+            # 노드 루트 디스크에 잠깐 떨어졌다가 파드와 함께 사라진다.
+            # /mnt/data 를 쓰면 백업이 원본과 같은 EBS 에 남아 의미가 없다.
+            - name: backup
+              emptyDir: {}

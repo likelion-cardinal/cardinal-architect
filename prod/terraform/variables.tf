@@ -65,6 +65,12 @@ variable "etcd_backup_retention_days" {
   default     = 30
 }
 
+variable "mysql_backup_retention_days" {
+  description = "공유 버킷 mysql/ 덤프 보존 기간(일). EBS는 논리적 삭제(DELETE·DROP)를 막지 못해 이 덤프가 유일한 복구 수단이다"
+  type        = number
+  default     = 30
+}
+
 variable "blocked_cidrs" {
   description = "Public NACL에서 deny할 악성 IP/CIDR 목록 (ALB 로그 분석 결과)"
   type        = list(string)

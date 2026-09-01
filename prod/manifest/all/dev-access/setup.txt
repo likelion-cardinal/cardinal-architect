@@ -1,0 +1,155 @@
+개발팀 DB 접속 (SSM → CP → kubectl → mysql/rabbitmq/redis)
+======================================================================
+(이 디렉토리에서 실행. 1~2는 관리자가 CP에서, 3은 콘솔에서 한다)
+
+접속 경로
+----------------------------------------------------------------------
+  개발자 로컬
+   └ aws ssm start-session --target <CP> --document-name cardinal-prod-cp-devops
+      └ CP 의 devops 계정 (sudo 없음, database 네임스페이스로 스코프된 kubeconfig)
+         └ kubectl -n database exec -it deploy/mysql -- mysql -u dev -p cardinal
+
+노드는 전부 private 서브넷이고 SG 에 22번 인바운드가 아예 없다. SSH 도, 공인 IP 도
+없으므로 SSM 이 유일한 경로다. 이 구조를 깨지 않고 접속만 얹는 것이 목적이다.
+
+
+1. RBAC 배포 (CP 에서, 관리자 kubeconfig 로)
+----------------------------------------------------------------------
+1. kubectl apply -f rbac.yaml
+
+// 권한이 의도대로 들어갔는지 확인 — 앞의 3개는 yes, 뒤의 2개는 no 여야 한다
+2. for r in "get pods" "create pods/exec" "create pods/portforward"; do
+     kubectl auth can-i $r -n database \
+       --as=system:serviceaccount:database:dev
+   done
+   kubectl auth can-i get secrets  -n database --as=system:serviceaccount:database:dev
+   kubectl auth can-i get pods     -n default  --as=system:serviceaccount:database:dev
+
+
+2. CP 에 devops 계정 + kubeconfig (CP 에서, root 로)
+----------------------------------------------------------------------
+SSM 세션 문서가 이 계정으로 떨어뜨린다. sudo 를 주면 안 된다 — 주는 순간
+/etc/kubernetes/admin.conf 를 읽어 cluster-admin 이 된다.
+
+1. useradd -m -s /bin/bash devops
+
+// 토큰과 CA 를 SA Secret 에서 꺼내 kubeconfig 를 만든다
+2. TOKEN=$(kubectl -n database get secret dev-token -o jsonpath='{.data.token}' | base64 -d)
+   CA=$(kubectl -n database get secret dev-token -o jsonpath='{.data.ca\.crt}')
+   APISERVER=https://10.20.10.10:6443
+
+3. install -d -o devops -g devops -m 700 /home/devops/.kube
+   cat > /home/devops/.kube/config <<EOF
+   apiVersion: v1
+   kind: Config
+   clusters:
+     - name: cardinal
+       cluster:
+         server: $APISERVER
+         certificate-authority-data: $CA
+   users:
+     - name: dev
+       user:
+         token: $TOKEN
+   contexts:
+     - name: dev
+       context:
+         cluster: cardinal
+         user: dev
+         namespace: database
+   current-context: dev
+   EOF
+   chown devops:devops /home/devops/.kube/config
+   chmod 600 /home/devops/.kube/config
+
+// devops 로 직접 확인 (여기서 실패하면 개발자도 실패한다)
+4. sudo -iu devops kubectl get pods
+   sudo -iu devops kubectl get pods -n default   # ← Forbidden 이 나와야 정상
+
+// sudo 가 없는지 확인 — 있으면 위의 모든 제한이 무의미하다
+5. sudo -iu devops sudo -n true   # ← "may not run sudo" 가 나와야 정상
+
+
+3. 개발용 MySQL 계정 (CP 에서)
+----------------------------------------------------------------------
+앱 계정(cardinal)이나 root 를 공유하지 않는다. 사고가 나도 누가 쳤는지 구분되고,
+비밀번호를 바꿔도 앱이 안 끊긴다.
+
+1. kubectl -n database exec -it deploy/mysql -- \
+     mysql -u root -p -e "
+       CREATE USER 'dev'@'%' IDENTIFIED BY '<개발용 비밀번호>';
+       GRANT SELECT, INSERT, UPDATE, DELETE ON cardinal.* TO 'dev'@'%';
+       FLUSH PRIVILEGES;"
+
+   ※ DDL(DROP/ALTER/CREATE)은 일부러 뺐다. 스키마 변경이 필요하면 관리자를 거친다.
+   ※ 비밀번호에 ! 가 들어가면 bash 히스토리 확장으로 조용히 깨진다. 작은따옴표로 감쌀 것.
+
+
+4. IAM (콘솔에서)
+----------------------------------------------------------------------
+terraform apply 가 그룹과 세션 문서를 만든다.
+
+1. terraform -chdir=../../../terraform apply -var-file=env/prod.tfvars
+     → 생성물: IAM 그룹 cardinal-prod-dev-db-access
+               SSM 문서  cardinal-prod-cp-devops
+
+2. 콘솔에서 개발자별 IAM 유저 생성 (콘솔 로그인 불필요, 액세스 키만)
+     - 유저마다 따로 만든다. 공용 계정을 쓰면 세션 로그에 누군지 안 남는다.
+     - 만든 유저를 cardinal-prod-dev-db-access 그룹에 추가
+     - 인라인 정책은 붙이지 않는다 (그룹 정책이 전부다)
+
+3. 액세스 키를 개발자에게 전달 (Slack DM 말고 1회용 링크나 대면)
+
+
+5. 개발자에게 전달할 내용
+----------------------------------------------------------------------
+사전 설치: AWS CLI v2 + session-manager-plugin
+
+  aws configure --profile cardinal      # 받은 액세스 키, 리전 ap-northeast-2
+
+  aws ssm start-session --profile cardinal \
+    --target i-035eaeb1fe3cd3330 \
+    --document-name cardinal-prod-cp-devops
+
+접속 후 (kubeconfig 는 이미 세팅돼 있고 네임스페이스도 database 로 고정):
+
+  kubectl get pods
+
+  # MySQL
+  kubectl exec -it deploy/mysql -- mysql -u dev -p cardinal
+
+  # RabbitMQ (큐 상태)
+  kubectl exec deploy/rabbitmq -- rabbitmqctl list_queues
+
+  # Redis (인증 없음 — 캐시라 비밀번호를 안 걸어뒀다)
+  kubectl exec -it deploy/redis -- redis-cli
+
+관리 콘솔이 필요하면 로컬로 포워딩:
+
+  kubectl port-forward svc/rabbitmq 15672:15672   # http://localhost:15672
+  kubectl port-forward svc/mysql 13306:3306       # DBeaver 등
+
+
+주의사항
+----------------------------------------------------------------------
+- 열어주기 전에 반드시 백업을 뜬다. mysql/setup.txt 대로 백업 CronJob 이 없고
+  replicas 1 / HA 없음이라, 잘못된 DELETE 하나를 되돌릴 방법이 지금은 없다:
+    kubectl -n database exec deploy/mysql -- \
+      sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqldump -u root --all-databases' \
+      > backup-$(date +%F).sql
+
+- exec 을 허용했으므로 컨테이너 안에서 `env` 를 치면 MYSQL_ROOT_PASSWORD 가
+  그대로 보인다. mysql.yaml 이 secret 을 환경변수로 주입하기 때문이고, RBAC 로
+  secrets 를 막아도 이 경로는 막히지 않는다. 이걸 닫으려면 MYSQL_ROOT_PASSWORD_FILE
+  방식으로 바꿔야 하는데, 프로브 3개가 전부 그 환경변수를 쓰고 있어 같이 고쳐야 한다.
+
+- 접속을 한 번에 끊는 법 (축제 종료 후):
+    kubectl -n database delete secret dev-token      # 토큰 무효화
+    콘솔에서 IAM 그룹의 유저 제거 또는 액세스 키 비활성화
+
+- CP 를 AMI 교체로 갈아엎으면 devops 계정과 kubeconfig 가 사라진다(루트 EBS).
+  교체 후 2번을 다시 실행할 것. IAM 정책은 인스턴스 ID 가 아니라 Role 태그로
+  잡고 있어 그대로 유효하다.
+
+- RabbitMQ 관리 콘솔을 Ingress 로 외부에 열지 말 것. rabbitmq/setup.txt 와 같은 이유로,
+  콘솔은 큐 조작이 전부 가능하다. 위처럼 port-forward 로만 본다.

@@ -102,11 +102,11 @@ data "aws_iam_policy_document" "node_extra" {
       actions   = ["s3:ListBucket"]
       resources = [var.etcd_backup_bucket_arn]
 
-      # 복구 스크립트가 최신 백업을 찾으려면 두 prefix 모두 나열할 수 있어야 한다.
+      # 복구 스크립트가 최신 백업을 찾으려면 세 prefix 모두 나열할 수 있어야 한다.
       condition {
         test     = "StringLike"
         variable = "s3:prefix"
-        values   = ["etcd/*", "pki/*"]
+        values   = ["etcd/*", "pki/*", "mysql/*"]
       }
     }
   }
@@ -119,9 +119,12 @@ data "aws_iam_policy_document" "node_extra" {
       actions = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
 
       # etcd 스냅샷과 PKI 아카이브. 이 둘이 짝을 이뤄야 복구가 성립한다.
+      # mysql/ 은 성격이 다르다 — 클러스터가 아니라 애플리케이션 데이터 백업이고,
+      # etcd 복구와 무관하게 단독으로 쓰인다(mysql < dump.sql).
       resources = [
         "${var.etcd_backup_bucket_arn}/etcd/*",
         "${var.etcd_backup_bucket_arn}/pki/*",
+        "${var.etcd_backup_bucket_arn}/mysql/*",
       ]
     }
   }

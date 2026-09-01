@@ -104,3 +104,12 @@ output "app_launch_template_id" {
 output "kubeadm_join_parameter_name" {
   value = module.app_asg.join_parameter_name
 }
+
+# 개발팀에게 그대로 전달할 접속 정보. 그룹에 IAM 유저를 넣는 건 콘솔에서 한다.
+output "dev_access_group_name" {
+  value = module.dev_access.group_name
+}
+
+output "dev_access_session_document" {
+  value = module.dev_access.session_document_name
+}
