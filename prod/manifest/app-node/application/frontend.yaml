@@ -34,7 +34,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: frontend
-          image: ghcr.io/likelion-cardinal/cardinal-fe-prod:1.0.1
+          image: ghcr.io/likelion-cardinal/cardinal-fe-prod:1.0.2
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
