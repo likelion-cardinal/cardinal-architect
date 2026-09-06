@@ -64,3 +64,4 @@ data:
   TZ: "Asia/Seoul"
   VITE_API_URL: "/api"
   VITE_ADMIN_PATH: "manage-cdnl-qk29dls93x"
+  VITE_RELEASE_BYPASS: "false"
