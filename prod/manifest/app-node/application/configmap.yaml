@@ -46,7 +46,7 @@ data:
   #R2
   R2_ENDPOINT: "https://7c4c4fe1e12f57b54b6057ed193e57f0.r2.cloudflarestorage.com"
   R2_BUCKET: "cardinal-sogang"
-  R2_PUBLIC_URL: "https://pub-f657af7c06f9411db9a0f3d9063dd289.r2.dev"
+  R2_PUBLIC_URL: "https://images.cardinal2026image.com"
 
   # JWT 인증 기간
   JWT_ACCESS_VALIDITY: "3600"
